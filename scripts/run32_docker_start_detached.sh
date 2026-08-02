@@ -12,7 +12,7 @@ test -f "docker-compose.yml" || {                             # Require docker-c
   exit 1                                                      # Exit with error.
 }                                                             # End Compose file check.
 
-docker compose up --build -d                                 # Build and start services in detached mode.
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml up --build -d # Build and start services.
 
 echo                                                          # Print blank line.
 echo "[OK] Docker services were started."                      # Show success message.

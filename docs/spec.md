@@ -359,3 +359,15 @@ The project is successful when:
 7. Launcher can request status, start, and stop through Manager API.
 8. The architecture does not use Docker socket mount in Launcher.
 
+## 12. Dynamic Application Management Extension
+
+Launcher and Manager API also manage persisted application registrations in
+`config/apps.json`. Each registration separates `display_name`, `app_id`, and
+`source_directory`, and includes route, port, health path, Dockerfile,
+description, enabled flag, and timestamps.
+
+Manager API exposes validated CRUD and lifecycle operations (`list`, `inspect`,
+`add`, `update`, `remove`, `start`, `stop`, `restart`, `rebuild`, `logs`).
+Generated Compose and Nginx files are written under `generated/`; they are
+derived artifacts and must not be edited by hand. Existing app1-app4 entries
+remain in the initial configuration.

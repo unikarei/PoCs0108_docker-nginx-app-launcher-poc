@@ -4,18 +4,10 @@ services:
     depends_on:
       launcher:
         condition: service_healthy
-      app1:
-        condition: service_healthy
-      app2:
-        condition: service_healthy
-      app3:
-        condition: service_healthy
-      app4:
-        condition: service_healthy
     ports:
       - "8080:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./generated/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - multiapp_net
     logging:
@@ -48,86 +40,8 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  app1:
-    build:
-      context: ./apps/app1
-      dockerfile: Dockerfile
-    expose:
-      - "8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    networks:
-      - multiapp_net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  app2:
-    build:
-      context: ./apps/app2
-      dockerfile: Dockerfile
-    expose:
-      - "8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    networks:
-      - multiapp_net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  app3:
-    build:
-      context: ./apps/app3
-      dockerfile: Dockerfile
-    expose:
-      - "8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    networks:
-      - multiapp_net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  app4:
-    build:
-      context: ./apps/app4
-      dockerfile: Dockerfile
-    expose:
-      - "8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    networks:
-      - multiapp_net
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
 networks:
   multiapp_net:
     driver: bridge
+
+  # The generated override extends these legacy entries for dynamic installs.

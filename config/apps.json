@@ -1,0 +1,54 @@
+[
+  {
+    "display_name": "APP1",
+    "app_id": "app1",
+    "source_directory": "apps/app1",
+    "route_path": "/app1/",
+    "internal_port": 8000,
+    "health_path": "/health",
+    "dockerfile": "Dockerfile",
+    "enabled": true,
+    "description": "Initial PoC app",
+    "created_at": "2026-08-02T00:53:10.346749+00:00",
+    "updated_at": "2026-08-02T00:53:10.347749+00:00"
+  },
+  {
+    "display_name": "APP2",
+    "app_id": "app2",
+    "source_directory": "apps/app2",
+    "route_path": "/app2/",
+    "internal_port": 8000,
+    "health_path": "/health",
+    "dockerfile": "Dockerfile",
+    "enabled": true,
+    "description": "Initial PoC app",
+    "created_at": "2026-08-02T00:53:10.347749+00:00",
+    "updated_at": "2026-08-02T00:53:10.347749+00:00"
+  },
+  {
+    "display_name": "APP3",
+    "app_id": "app3",
+    "source_directory": "apps/app3",
+    "route_path": "/app3/",
+    "internal_port": 8000,
+    "health_path": "/health",
+    "dockerfile": "Dockerfile",
+    "enabled": true,
+    "description": "Initial PoC app",
+    "created_at": "2026-08-02T00:53:10.347749+00:00",
+    "updated_at": "2026-08-02T00:53:10.347749+00:00"
+  },
+  {
+    "display_name": "APP4",
+    "app_id": "app4",
+    "source_directory": "apps/app4",
+    "route_path": "/app4/",
+    "internal_port": 8000,
+    "health_path": "/health",
+    "dockerfile": "Dockerfile",
+    "enabled": true,
+    "description": "Initial PoC app",
+    "created_at": "2026-08-02T00:53:10.347749+00:00",
+    "updated_at": "2026-08-02T00:53:10.347749+00:00"
+  }
+]

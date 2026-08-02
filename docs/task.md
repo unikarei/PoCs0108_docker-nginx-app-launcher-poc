@@ -528,3 +528,16 @@ These tasks are not required in the first PoC.
 
 ### [x] Task 9.7 Add GitHub Actions
 
+---
+
+## Phase 10: Dynamic Application Management
+
+### [x] Task 10.1 Add persisted application registry and validation
+
+### [x] Task 10.2 Generate Compose and Nginx configuration artifacts
+
+### [x] Task 10.3 Add Manager API CRUD and lifecycle operations
+
+### [x] Task 10.4 Add Launcher management UI and API proxy endpoints
+
+### [ ] Task 10.5 Add tests and update README

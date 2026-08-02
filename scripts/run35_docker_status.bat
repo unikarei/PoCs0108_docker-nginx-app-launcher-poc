@@ -10,7 +10,7 @@ echo ========================================================= & rem Print title
 
 if not exist "docker-compose.yml" goto :missing_compose       & rem Require docker-compose.yml.
 
-docker compose ps                                             & rem Show container status.
+docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml ps & rem Show container status.
 exit /b %ERRORLEVEL%                                          & rem Return Docker Compose exit code.
 
 rem ---------------------------------------------------------  & rem Error branch for missing Compose file.

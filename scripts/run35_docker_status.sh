@@ -12,4 +12,4 @@ test -f "docker-compose.yml" || {                             # Require docker-c
   exit 1                                                      # Exit with error.
 }                                                             # End Compose file check.
 
-docker compose ps                                            # Show container status.
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml ps # Show container status.

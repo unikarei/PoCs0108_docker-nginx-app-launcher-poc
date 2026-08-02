@@ -1,0 +1,50 @@
+# AUTO-GENERATED; DO NOT EDIT.
+services:
+  app1:
+    build:
+      context: apps/app1
+      dockerfile: Dockerfile
+    expose: [8000]
+    networks: [multiapp_net]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+  app2:
+    build:
+      context: apps/app2
+      dockerfile: Dockerfile
+    expose: [8000]
+    networks: [multiapp_net]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+  app3:
+    build:
+      context: apps/app3
+      dockerfile: Dockerfile
+    expose: [8000]
+    networks: [multiapp_net]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+  app4:
+    build:
+      context: apps/app4
+      dockerfile: Dockerfile
+    expose: [8000]
+    networks: [multiapp_net]
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

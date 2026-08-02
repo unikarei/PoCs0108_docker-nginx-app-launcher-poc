@@ -564,3 +564,13 @@ run51_stop_all
 
 Compatibility wrappers (`start`, `stop`, `status`, `manager_start`, `manager_stop`) delegate to these run scripts.
 
+## 16. Dynamic registration architecture
+
+The host-side Manager API owns `config/apps.json` and atomically persists
+validated registrations. It generates `generated/docker-compose.apps.yml` and
+`generated/nginx.conf`. Docker commands always use an argument array and the
+generated Compose override; arbitrary shell input is not accepted.
+
+Nginx mounts the generated configuration read-only. The Launcher only calls
+Manager API and presents the registration and lifecycle operations; it never
+accesses Docker or host files directly.

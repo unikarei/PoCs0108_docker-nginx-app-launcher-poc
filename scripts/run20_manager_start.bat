@@ -7,13 +7,14 @@ set "VENV_PY=%ROOT%\.venv\Scripts\python.exe"                 & rem Python inter
 set "PID_DIR=%ROOT%\.run"                                     & rem Runtime folder for PID files.
 set "PID_FILE=%PID_DIR%\manager-api.pid"                      & rem PID file for Manager API.
 set "MANAGER_URL=http://127.0.0.1:9000/health"                & rem Health URL for Manager API.
+set "MANAGER_APPS_URL=http://127.0.0.1:9000/api/apps"         & rem Feature URL used to detect the current API.
 cd /d "%ROOT%"                                                & rem Move to the project root.
 
 echo ========================================================= & rem Print title separator.
 echo [run20] Start host-side Manager API                       & rem Print script purpose.
 echo ========================================================= & rem Print title separator.
 
-curl -fsS "%MANAGER_URL%" >nul 2>nul                          & rem Check whether Manager API is already running.
+curl -fsS "%MANAGER_URL%" >nul 2>nul && curl -fsS "%MANAGER_APPS_URL%" >nul 2>nul & rem Check current Manager API.
 if not errorlevel 1 goto :already_running                     & rem Skip start when health check succeeds.
 
 if not exist "%MANAGER_DIR%\src\main.py" goto :missing_main   & rem Require Manager API source file.

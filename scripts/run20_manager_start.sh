@@ -6,13 +6,14 @@ VENV_PY="$ROOT/.venv/bin/python"                             # Python interprete
 PID_DIR="$ROOT/.run"                                         # Runtime folder for PID files.
 PID_FILE="$PID_DIR/manager-api.pid"                          # PID file for Manager API.
 MANAGER_URL="http://127.0.0.1:9000/health"                   # Health URL for Manager API.
+MANAGER_APPS_URL="http://127.0.0.1:9000/api/apps"            # Feature URL for current API version.
 cd "$ROOT"                                                   # Move to the project root.
 
 echo "=========================================================" # Print title separator.
 echo "[run20] Start host-side Manager API"                     # Print script purpose.
 echo "=========================================================" # Print title separator.
 
-if curl -fsS "$MANAGER_URL" >/dev/null 2>&1; then             # Check whether Manager API is already running.
+if curl -fsS "$MANAGER_URL" >/dev/null 2>&1 && curl -fsS "$MANAGER_APPS_URL" >/dev/null 2>&1; then # Check current Manager API.
   echo "[OK] Manager API is already running."                  # Show existing status.
   echo "URL: $MANAGER_URL"                                    # Show health check URL.
   exit 0                                                      # Exit successfully.

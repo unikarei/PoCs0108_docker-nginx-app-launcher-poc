@@ -10,7 +10,7 @@ echo ========================================================= & rem Print title
 
 if not exist "docker-compose.yml" goto :missing_compose       & rem Require docker-compose.yml.
 
-docker compose up --build -d                                  & rem Build and start services in detached mode.
+docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up --build -d & rem Build and start services.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker Compose fails.
 
 echo.                                                         & rem Print blank line.
