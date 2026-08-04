@@ -13,6 +13,7 @@ test -f "docker-compose.yml" || {                             # Require docker-c
 }                                                             # End Compose file check.
 
 docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml up --build -d # Build and start services.
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml up -d --force-recreate nginx # Refresh Nginx DNS after app recreation.
 
 echo                                                          # Print blank line.
 echo "[OK] Docker services were started."                      # Show success message.

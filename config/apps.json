@@ -39,16 +39,29 @@
     "updated_at": "2026-08-02T00:53:10.347749+00:00"
   },
   {
-    "display_name": "APP4",
-    "app_id": "app4",
+    "display_name": "test",
+    "app_id": "app4-revive",
     "source_directory": "apps/app4",
     "route_path": "/app4/",
     "internal_port": 8000,
     "health_path": "/health",
     "dockerfile": "Dockerfile",
     "enabled": true,
-    "description": "Initial PoC app",
-    "created_at": "2026-08-02T00:53:10.347749+00:00",
-    "updated_at": "2026-08-02T00:53:10.347749+00:00"
+    "description": "",
+    "created_at": "2026-08-04T12:30:01.522134+00:00",
+    "updated_at": "2026-08-04T12:30:01.522134+00:00"
+  },
+  {
+    "display_name": "add5 test",
+    "app_id": "add5-copy-test",
+    "source_directory": "apps/app5",
+    "route_path": "/app5/",
+    "internal_port": 8000,
+    "health_path": "/health",
+    "dockerfile": "Dockerfile",
+    "enabled": true,
+    "description": "",
+    "created_at": "2026-08-04T13:22:46.590108+00:00",
+    "updated_at": "2026-08-04T13:22:46.590108+00:00"
   }
 ]

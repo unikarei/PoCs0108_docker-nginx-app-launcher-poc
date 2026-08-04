@@ -15,6 +15,13 @@ HOME_PAGE_HTML = """<!DOCTYPE html>
   <body>
     <main>
       <h1>App4</h1>
+      <!-- Docker learning panel: explain this application's image and container. -->
+      <section aria-label="Dockerの説明">
+        <h2>このApp4のDockerイメージとコンテナ</h2>
+        <p><strong>Dockerイメージ</strong>は、App4を動かすための再利用できる実行用パッケージです。Python 3.12-slim、FastAPI、Uvicorn、App4の<code>src</code>ソース、Uvicornの起動命令を含みます。</p>
+        <p><strong>Dockerコンテナ</strong>は、そのイメージから実際に起動しているApp4の実行単位です。独立したプロセスと実行中のメモリー状態を持ち、Docker内部ネットワークのポート8000でNginxからの要求を受けます。</p>
+        <p>ソースコード・Dockerfile・依存ライブラリを変更した場合は「再ビルド」でイメージを作り直します。起動・再起動は既存イメージからコンテナを動かす操作です。</p>
+      </section>
       <button id=\"test-button\">Run App4 Test</button>
       <p id=\"result\"></p>
     </main>

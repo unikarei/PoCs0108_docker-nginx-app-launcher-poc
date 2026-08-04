@@ -540,4 +540,16 @@ These tasks are not required in the first PoC.
 
 ### [x] Task 10.4 Add Launcher management UI and API proxy endpoints
 
-### [ ] Task 10.5 Add tests and update README
+### [ ] Task 10.5 Add tests and update README (README.md is currently a pre-existing deleted file)
+
+### [x] Task 10.6 Verify add, start, stop, delete-preserve, and delete-source flows
+
+### [x] Task 10.7 Verify Nginx recreation after Launcher replacement
+
+### [x] Task 10.8 Add project folder-tree selection for source directories
+
+### [x] Task 10.9 Document application-management operational know-how
+
+### [x] Task 10.10 Refresh Nginx automatically after application route changes
+
+### [x] Task 10.11 Add a Docker image and container learning panel to every app

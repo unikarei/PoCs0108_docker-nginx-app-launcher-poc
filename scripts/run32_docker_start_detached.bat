@@ -12,6 +12,8 @@ if not exist "docker-compose.yml" goto :missing_compose       & rem Require dock
 
 docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up --build -d & rem Build and start services.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker Compose fails.
+docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up -d --force-recreate nginx & rem Refresh Nginx DNS after app recreation.
+if errorlevel 1 goto :failed                                  & rem Stop when Nginx recreation fails.
 
 echo.                                                         & rem Print blank line.
 echo [OK] Docker services were started.                        & rem Show success message.

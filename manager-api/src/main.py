@@ -143,6 +143,19 @@ def _safe_path(value: str, *, must_exist: bool = True) -> Path:
     return candidate
 
 
+def _safe_source_for_delete(value: str) -> Path:
+    """削除対象をapps配下の実ディレクトリに限定する。"""
+    candidate = _safe_path(value)
+    apps_root = (REPO_ROOT / "apps").resolve()
+    try:
+        candidate.relative_to(apps_root)
+    except ValueError as exc:
+        raise HTTPException(400, "Source deletion is allowed only below the apps directory") from exc
+    if candidate == apps_root or candidate.is_symlink() or not candidate.is_dir():
+        raise HTTPException(400, "Unsafe source directory")
+    return candidate
+
+
 def _validate_files(record: dict[str, Any]) -> None:
     source = _safe_path(record["source_directory"])
     dockerfile = (source / record["dockerfile"]).resolve()
@@ -176,11 +189,18 @@ def _compose_command(args: list[str]) -> subprocess.CompletedProcess[str]:
     return result
 
 
+# Gateway refresh block: make generated Nginx routes active in the running container.
+def _refresh_nginx() -> None:
+    """Recreate Nginx so it reads the latest generated route configuration."""
+    _compose_command(["up", "-d", "--force-recreate", "nginx"])
+
+
+# Configuration-generation block: write the Compose and Nginx artifacts from registrations.
 def _generate() -> None:
     records = _read_apps()
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
     services: dict[str, Any] = {}
-    routes: list[str] = ["    location /launcher/ {\n        proxy_pass http://launcher:8000/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }"]
+    routes: list[str] = ["    resolver 127.0.0.11 ipv6=off valid=10s;\n    location /launcher/ {\n        proxy_pass http://launcher:8000/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }"]
     for item in records:
         if not item["enabled"]:
             continue
@@ -190,13 +210,14 @@ def _generate() -> None:
             "expose": [str(item["internal_port"])], "networks": ["multiapp_net"],
             "healthcheck": {"test": ["CMD", "python", "-c", f"import urllib.request; urllib.request.urlopen('http://127.0.0.1:{item['internal_port']}{item['health_path']}', timeout=3)"], "interval": "10s", "timeout": "5s", "retries": 5, "start_period": "5s"},
         }
-        routes.append(f"    location {item['route_path']} {{\n        proxy_pass http://{item['app_id']}:{item['internal_port']}/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
+        routes.append(f"    location {item['route_path']} {{\n        set $app_upstream {item['app_id']}:{item['internal_port']};\n        proxy_pass http://$app_upstream/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
     compose = "# AUTO-GENERATED; DO NOT EDIT.\nservices:\n" + "".join(
         f"  {name}:\n    build:\n      context: {data['build']['context']}\n      dockerfile: {data['build']['dockerfile']}\n    expose: [{data['expose'][0]}]\n    networks: [multiapp_net]\n    healthcheck:\n      test: {data['healthcheck']['test']}\n      interval: 10s\n      timeout: 5s\n      retries: 5\n      start_period: 5s\n"
         for name, data in services.items())
     COMPOSE_OVERRIDE_PATH.write_text(compose, encoding="utf-8")
     nginx = "# AUTO-GENERATED; DO NOT EDIT.\nserver {\n    listen 80;\n    server_name _;\n    location = / { return 302 /launcher/; }\n" + "\n".join(routes) + "\n}\n"
     NGINX_GENERATED_PATH.write_text(nginx, encoding="utf-8")
+    _refresh_nginx()
 
 
 @app.get("/health")
@@ -248,6 +269,21 @@ def inspect_app(app_id: str) -> dict[str, Any]:
     return _find(app_id)
 
 
+@app.get("/api/directories")
+def list_directories() -> dict[str, list[str]]:
+    """アプリ配置候補をプロジェクト内の相対パスで返す。"""
+    directories: list[str] = ['.']                                      # Include the project root in the tree.
+    for root in (REPO_ROOT / "apps",):
+        if not root.exists():                                           # Check whether the app storage exists.
+            continue                                                    # Skip missing storage safely.
+        directories.append('apps')                                      # Make the storage folder selectable.
+        for path in sorted(root.rglob("*")):
+            if not path.is_dir() or any(part in {".git", ".venv", "__pycache__", "node_modules"} for part in path.parts):
+                continue
+            directories.append(path.relative_to(REPO_ROOT).as_posix())
+    return {"directories": directories}
+
+
 @app.post("/api/apps")
 def add_app(payload: AppCreate) -> dict[str, Any]:
     records = _read_apps()
@@ -286,16 +322,17 @@ def remove_app(app_id: str, payload: RemoveRequest) -> dict[str, str]:
     _atomic_write([item for item in records if item["app_id"] != app_id])
     _generate()
     if payload.remove_source:
-        source = _safe_path(target["source_directory"])
-        trash = REPO_ROOT / ".trash" / "apps" / f"{datetime.now().strftime('%Y%m%d%H%M%S')}-{app_id}"
-        trash.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(source), str(trash))
-    return {"status": "success", "message": f"{app_id} removed; source preserved by default"}
+        source = _safe_source_for_delete(target["source_directory"])
+        shutil.rmtree(source)
+        return {"status": "success", "message": f"{app_id} and its source directory were deleted"}
+    return {"status": "success", "message": f"{app_id} removed; source directory was preserved"}
 
 
 def _lifecycle(app_id: str, operation: Literal["start", "stop", "restart", "rebuild"]) -> dict[str, str]:
     _find(app_id)
-    args = [operation, app_id] if operation != "rebuild" else ["build", app_id]
+    args = ["up", "-d", "--build", app_id] if operation == "start" else [operation, app_id]
+    if operation == "rebuild":
+        args = ["build", app_id]
     _compose_command(args)
     return {"status": "success", "message": f"{app_id} {operation} completed"}
 

@@ -574,3 +574,7 @@ generated Compose override; arbitrary shell input is not accepted.
 Nginx mounts the generated configuration read-only. The Launcher only calls
 Manager API and presents the registration and lifecycle operations; it never
 accesses Docker or host files directly.
+
+When a service container is recreated, Nginx is also recreated or reloaded
+before browser verification. This refreshes Docker DNS and avoids 502 errors
+caused by an upstream IP from an older container instance.

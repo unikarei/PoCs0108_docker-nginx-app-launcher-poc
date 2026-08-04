@@ -371,3 +371,81 @@ Manager API exposes validated CRUD and lifecycle operations (`list`, `inspect`,
 Generated Compose and Nginx files are written under `generated/`; they are
 derived artifacts and must not be edited by hand. Existing app1-app4 entries
 remain in the initial configuration.
+
+## 13. Reliability and verification requirements
+
+After changes, verify register, start, stop, and remove while preserving
+source by default. Test explicit source deletion separately. Recreate or
+reload Nginx when Launcher is recreated to avoid stale upstream IPs.
+
+The source-directory form uses a browser folder picker and starts with the
+project-relative `apps` directory. Selecting an application folder changes the
+registered value to (for example) `apps/app1`; the value is validated by
+Manager API before registration. No files are uploaded.
+
+## 14. Application-management operational know-how
+
+### 14.1 Registration fields have separate responsibilities
+
+`app_id`, `source_directory`, and `route_path` are independent values and do
+not have to use the same text.
+
+- `app_id` is the immutable management identifier and Docker Compose service
+  name. It must contain lowercase letters, digits, and hyphens only.
+- `source_directory` is the project-relative folder containing the app source
+  and its Dockerfile, for example `apps/app4`.
+- `route_path` is the public Nginx URL path, for example `/app4/`.
+
+For example, an app re-created from the existing `apps/app4` source may use
+`app_id=app4-revive` and `route_path=/app4/`. The Launcher Open link must
+always navigate to `route_path`, never construct a URL from `app_id`.
+
+### 14.2 Source-directory selection
+
+The management screen provides a project-relative folder-tree dialog. It
+lists the project folder and `apps` subdirectories, selects `apps` initially,
+and writes only the selected relative path to the registration form. It never
+uploads files. A valid registration must select a folder containing the
+specified Dockerfile; selecting the `apps` root alone is only useful for
+browsing and will fail validation unless it contains that Dockerfile.
+
+### 14.3 Lifecycle operation guide
+
+- **Start** starts a stopped container with its existing Docker image.
+- **Stop** stops the container but preserves registration, source, image, and
+  logs.
+- **Restart** stops and starts the same image, resetting process memory and
+  other runtime state.
+- **Rebuild** creates a new image from Dockerfile, dependencies, and source
+  changes. Follow it with Start or Restart when the new image must run.
+
+The management screen must present this guide through a help dialog beside the
+Delete action so users can choose the correct operation before changing an
+application.
+
+### 14.4 Gateway refresh after route changes
+
+Adding, editing, removing, or regenerating an application changes the generated
+Nginx route configuration. The Manager API must recreate the Nginx service
+after generating that configuration, before reporting the operation successful.
+This prevents a newly registered public path, such as `/app5/`, from returning
+an Nginx 404 while the generated file already contains the route.
+
+Nginx must resolve generated application service names dynamically so it can
+remain available while a newly registered application is still stopped. The
+Start operation must use Docker Compose `up -d --build <app_id>` so it can
+create and start a service that has never existed before; a plain Compose
+`start` is insufficient for a newly registered service.
+
+## 15. Per-application Docker learning panel
+
+Every registered sample application page must show a readable Docker learning
+panel. The panel explains that its Docker image is the reusable build result
+containing the Python base image, installed FastAPI and Uvicorn dependencies,
+the application source, and the Uvicorn start command. It also explains that
+its Docker container is the running instance created from that image, with a
+separate process and runtime memory, reachable on the internal port 8000.
+
+The panel must clarify that rebuilding changes the image, while starting or
+restarting changes the container runtime state. It must remain visible without
+calling Docker directly from the application container.
