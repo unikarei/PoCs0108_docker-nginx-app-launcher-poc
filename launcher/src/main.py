@@ -9,6 +9,11 @@ from fastapi.responses import HTMLResponse           # HTMLレスポンス型。
 
 # 設定ブロック: 起動時に環境変数を読み、許可範囲とタイムアウトを定める。
 ALLOWED_APPS = ["app1", "app2", "app3", "app4"]
+# Launcher overview:
+# This module serves the browser-facing list and management pages. It has no
+# Docker socket or project-file access. After Basic authentication, it forwards
+# approved HTTP requests to the host-side Manager API, which owns all Docker
+# and registry operations.
 MANAGER_API_BASE_URL = os.getenv("MANAGER_API_BASE_URL", "http://host.docker.internal:9000")
 REQUEST_TIMEOUT_SECONDS = 10.0
 LAUNCHER_BASIC_AUTH_USER = os.getenv("LAUNCHER_BASIC_AUTH_USER", "launcher")
@@ -160,14 +165,19 @@ HOME_PAGE_HTML = """<!DOCTYPE html>
 
 MANAGEMENT_HTML = """<!DOCTYPE html>
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>アプリ管理</title>
-<style>body{font-family:sans-serif;margin:2rem}input,textarea{display:block;width:100%;max-width:520px;margin:.25rem 0 .75rem;padding:.4rem}button{margin:.2rem;padding:.4rem}.help-wrap{display:inline-block;position:relative}.help-wrap summary{list-style:none;border:0;border-radius:50%;background:#2684ff;color:#fff;width:1.5rem;height:1.5rem;line-height:1.5rem;text-align:center;cursor:pointer}.help-wrap summary::-webkit-details-marker{display:none}.popup{position:fixed;z-index:10;left:50%;top:25%;transform:translateX(-50%);background:#fff;border:1px solid #777;border-radius:.4rem;box-shadow:0 4px 18px #999;padding:1rem;max-width:420px}.popup li{margin:.35rem 0}.danger{background:#fdd}.card{border:1px solid #ddd;padding:1rem;margin:1rem 0}</style></head>
-<body><p><a href="./">← Launcher</a></p><h1>アプリ管理 ⚙</h1><p id="message"></p>
-<section class="card"><h2>追加</h2><form id="add-form"><label>表示名 <details class="help-wrap"><summary aria-label="表示名の説明">?</summary><div class="popup" role="dialog"><h2>表示名とは？</h2><p>Launcher画面に表示する、人間向けのアプリ名です。</p><ul><li>日本語や空白を使用できます。</li><li>Dockerサービス名やURLには使いません。</li><li>例：<code>売上分析アプリ</code></li></ul><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><input name="display_name" required></label><label>app_id <details class="help-wrap"><summary aria-label="app_idの説明">?</summary><div id="app-id-help" class="popup" role="dialog"><h2 id="app-id-help-title">app_idとは？</h2><p>アプリを内部で識別するための一意なIDです。</p><ul><li>Docker Composeのサービス名に使います。</li><li>Nginxの転送先名とURLパスに使います。</li><li>起動・停止・削除対象の識別に使います。</li></ul><p>英小文字、数字、ハイフンのみ入力できます。</p><p>例：<code>sales-analysis</code>、<code>app5</code>、<code>customer-api</code></p><p>登録後は基本的に変更しないでください。</p><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><input name="app_id" pattern="[a-z0-9-]+" required></label><label>ソースディレクトリ <details class="help-wrap"><summary aria-label="ソースディレクトリの説明">?</summary><div class="popup" role="dialog"><h2>ソースディレクトリとは？</h2><p>アプリのソースコードとDockerfileが保存されているフォルダーです。</p><ul><li>Dockerイメージのビルド対象になります。</li><li>プロジェクト基準の相対パスを入力できます。</li><li>例：<code>apps/sales</code></li><li>指定フォルダー内にDockerfileが必要です。</li></ul><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><button type="button" onclick="chooseSourceFolder()">フォルダーを参照...</button><input name="source_directory" id="source-directory-text" value="apps" required><input id="source-folder-picker" type="file" webkitdirectory directory multiple style="display:none"></label><label>URLパス<input name="route_path" placeholder="/my-app/"></label><label>内部ポート<input name="internal_port" type="number" value="8000" min="1" max="65535"></label><label>ヘルスパス<input name="health_path" value="/health"></label><label>Dockerfile<input name="dockerfile" value="Dockerfile"></label><label>説明<textarea name="description"></textarea></label><button>登録</button></form></section>
-<section><h2>登録済みアプリ</h2><div id="apps"></div></section>
+<style>body{font-family:sans-serif;margin:2rem}input,textarea{display:block;width:100%;max-width:520px;margin:.25rem 0 .75rem;padding:.4rem}button{margin:.2rem;padding:.4rem}.help-wrap{display:inline-block;position:relative}.help-wrap summary{list-style:none;border:0;border-radius:50%;background:#2684ff;color:#fff;width:1.5rem;height:1.5rem;line-height:1.5rem;text-align:center;cursor:pointer}.help-wrap summary::-webkit-details-marker{display:none}.popup{position:fixed;z-index:10;left:50%;top:25%;transform:translateX(-50%);background:#fff;border:1px solid #777;border-radius:.4rem;box-shadow:0 4px 18px #999;padding:1rem;max-width:420px}.popup li{margin:.35rem 0}.danger{background:#fdd}.card{border:1px solid #ddd;padding:1rem;margin:1rem 0}.tabs{display:flex;gap:.25rem;border-bottom:1px solid #bbb;margin:1rem 0}.tab{border:1px solid transparent;border-radius:.3rem .3rem 0 0;background:#eee;margin:0;padding:.55rem .9rem;cursor:pointer}.tab[aria-selected="true"]{background:#fff;border-color:#bbb;border-bottom-color:#fff;font-weight:bold}.tab-panel[hidden]{display:none}</style></head>
+<body><p><a href="./">← Launcher</a></p><h1>アプリ管理 ⚙</h1><p id="message"></p><div class="tabs" role="tablist" aria-label="アプリ管理メニュー"><button id="tab-add-button" class="tab" role="tab" aria-controls="tab-add" aria-selected="true" onclick="switchTab('add')">追加</button><button id="tab-registered-button" class="tab" role="tab" aria-controls="tab-registered" aria-selected="false" onclick="switchTab('registered')">登録済みアプリ</button></div>
+<section id="tab-add" class="tab-panel card" role="tabpanel" aria-labelledby="tab-add-button"><h2>追加</h2><form id="add-form"><label>表示名 <details class="help-wrap"><summary aria-label="表示名の説明">?</summary><div class="popup" role="dialog"><h2>表示名とは？</h2><p>Launcher画面に表示する、人間向けのアプリ名です。</p><ul><li>日本語や空白を使用できます。</li><li>Dockerサービス名やURLには使いません。</li><li>例：<code>売上分析アプリ</code></li></ul><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><input name="display_name" required></label><label>app_id <details class="help-wrap"><summary aria-label="app_idの説明">?</summary><div id="app-id-help" class="popup" role="dialog"><h2 id="app-id-help-title">app_idとは？</h2><p>アプリを内部で識別するための一意なIDです。</p><ul><li>Docker Composeのサービス名に使います。</li><li>Nginxの転送先名とURLパスに使います。</li><li>起動・停止・削除対象の識別に使います。</li></ul><p>英小文字、数字、ハイフンのみ入力できます。</p><p>例：<code>sales-analysis</code>、<code>app5</code>、<code>customer-api</code></p><p>登録後は基本的に変更しないでください。</p><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><input name="app_id" pattern="[a-z0-9-]+" required></label><label>ソースディレクトリ <details class="help-wrap"><summary aria-label="ソースディレクトリの説明">?</summary><div class="popup" role="dialog"><h2>ソースディレクトリとは？</h2><p>アプリのソースコードとDockerfileが保存されているフォルダーです。</p><ul><li>Dockerイメージのビルド対象になります。</li><li>プロジェクト基準の相対パスを入力できます。</li><li>例：<code>apps/sales</code></li><li>指定フォルダー内にDockerfileが必要です。</li></ul><button type="button" onclick="this.closest('details').removeAttribute('open')">閉じる</button></div></details><button type="button" onclick="chooseSourceFolder()">フォルダーを参照...</button><input name="source_directory" id="source-directory-text" value="apps" required><input id="source-folder-picker" type="file" webkitdirectory directory multiple style="display:none"></label><label>URLパス<input name="route_path" placeholder="/my-app/"></label><label>内部ポート<input name="internal_port" type="number" value="8000" min="1" max="65535"></label><label>ヘルスパス<input name="health_path" value="/health"></label><label>Dockerfile<input name="dockerfile" value="Dockerfile"></label><label>説明<textarea name="description"></textarea></label><button>登録</button></form></section>
+<section id="tab-registered" class="tab-panel" role="tabpanel" aria-labelledby="tab-registered-button" hidden><h2>登録済みアプリ</h2><div id="apps"></div></section>
 <dialog id="source-folder-dialog"><form method="dialog"><h3>ソースフォルダーを選択</h3><p>プロジェクトフォルダーとapps配下から選択してください。</p><select id="source-folder-tree" size="10" style="min-width:320px"></select><div><button value="cancel">キャンセル</button><button id="source-folder-apply" value="default">選択</button></div></form></dialog>
 <dialog id="lifecycle-help-dialog"><form method="dialog"><h3>起動・停止・再起動・再ビルドの説明</h3><h4>起動</h4><p>停止しているコンテナを開始します。すでに作成済みのDockerイメージを使うため、通常は最も短時間で完了します。ソースコード、Dockerfile、依存ライブラリを変更していない場合は、まず「起動」を使います。すでに動いている場合は、そのままの状態を維持します。</p><h4>停止</h4><p>実行中のコンテナを停止します。登録情報、ソースコード、Dockerイメージ、ログは削除しません。停止中はOpenしてもアプリを表示できません。再度使うときは「起動」を押してください。</p><h4>再起動</h4><p>コンテナをいったん停止してから、同じイメージで再び起動します。アプリの一時メモリー状態や接続状態をリセットしたい場合、または環境変数などコンテナ起動時に読む設定を反映したい場合に使います。ソースコードやDockerfileを変更しただけでは、再起動しても新しいイメージにはなりません。</p><h4>再ビルド</h4><p>Dockerfile、requirements.txtなどの依存定義、またはソースコードの変更をDockerイメージへ反映するために、イメージを作り直します。ビルド完了後、必要に応じて「再起動」または「起動」を押し、新しいイメージでコンテナを動かしてください。依存ライブラリの取得があるため、通常は他の操作より時間がかかります。</p><h4>使い分け</h4><p>停止中のアプリを使う: 起動。動作をリセットしたい: 再起動。Dockerfile・依存ライブラリ・ソースを反映したい: 再ビルド後に再起動。アプリを不要にする: 停止。登録そのものを消す: 削除。</p><button>閉じる</button></form></dialog>
 <script>
 const message=document.getElementById('message'); const apps=document.getElementById('apps');
+// Bundle-registration block: collect only structural Compose metadata, never secrets.
+document.getElementById('add-form').insertAdjacentHTML('afterbegin','<fieldset><legend>登録形式</legend><label><select name="deployment_type" id="deployment-type"><option value="single">単体アプリ</option><option value="bundle">Compose バンドル</option></select></label><div id="bundle-fields" hidden><label>Compose ファイル<input name="compose_file" value="docker-compose.launcher.yml"></label><label>公開サービス名<input name="public_service" placeholder="frontend"></label><p>API キーやパスワードは入力しません。対象フォルダーの .env で管理します。</p></div></fieldset>');
+document.getElementById('deployment-type').addEventListener('change',e=>{document.getElementById('bundle-fields').hidden=e.target.value!=="bundle"});
+// Tab-navigation block: keep the form and registered-app list focused in separate panels.
+function switchTab(name){const showAdd=name==='add';document.getElementById('tab-add').hidden=!showAdd;document.getElementById('tab-registered').hidden=showAdd;document.getElementById('tab-add-button').setAttribute('aria-selected',String(showAdd));document.getElementById('tab-registered-button').setAttribute('aria-selected',String(!showAdd));}
 // Folder-selection block: load the project tree before using the native picker.
 async function chooseSourceFolder(){
   const dialog=document.getElementById('source-folder-dialog'); // Locate the modal dialog.
@@ -366,12 +376,14 @@ def management_directories(request: Request) -> dict:
 
 @app.post("/api/management/apps")
 def management_add(request: Request, payload: dict) -> dict:
+    """Forward a new app registration after authenticating the browser request."""
     _check_basic_auth(request)
     return _manager_post_json("/api/apps", payload)
 
 
 @app.post("/api/management/apps/{app_id}/{operation}")
 def management_action(app_id: str, operation: str, request: Request) -> dict:
+    """Forward an approved lifecycle action and reject unsupported operations."""
     _check_basic_auth(request)
     if operation not in {"start", "stop", "restart", "rebuild"}:
         raise HTTPException(400, "Unsupported operation")
@@ -380,12 +392,14 @@ def management_action(app_id: str, operation: str, request: Request) -> dict:
 
 @app.get("/api/management/apps/{app_id}/logs")
 def management_logs(app_id: str, request: Request) -> dict:
+    """Return bounded logs for one registered app through the Manager API."""
     _check_basic_auth(request)
     return _manager_get(f"/api/apps/{app_id}/logs")
 
 
 @app.delete("/api/management/apps/{app_id}")
 def management_delete(app_id: str, request: Request, payload: dict) -> dict:
+    """Forward a confirmed registration deletion request to the Manager API."""
     _check_basic_auth(request)
     return _manager_delete(f"/api/apps/{app_id}", payload)
 

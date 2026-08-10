@@ -1,6 +1,7 @@
 """Docker-free SDD lifecycle tests for the dynamic application registry."""
 
 import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -104,3 +105,110 @@ def test_delete_source_calls_safe_recursive_remove(monkeypatch: pytest.MonkeyPat
 def test_delete_source_rejects_project_root() -> None:
     with pytest.raises(Exception):
         main._safe_source_for_delete(".")
+
+
+def _bundle_record() -> dict:
+    """Return the smallest valid bundle registration used by validation tests."""
+    return {
+        "display_name": "Bundle", "app_id": "bundle", "source_directory": "bundle",
+        "route_path": "/bundle/", "internal_port": 3000, "health_path": "/health",
+        "dockerfile": "", "deployment_type": "bundle", "compose_file": "compose.yml",
+        "public_service": "frontend", "enabled": True,
+    }
+
+
+def test_bundle_validation_accepts_internal_only_services(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A bundle may use named volumes and source-local builds without host ports."""
+    source = tmp_path / "bundle"
+    source.mkdir()
+    (source / "compose.yml").write_text(
+        "services:\n  api:\n    build:\n      context: .\n      dockerfile: Dockerfile.api\n"
+        "  frontend:\n    image: node:18-alpine\nvolumes:\n  data:\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(main, "REPO_ROOT", tmp_path)
+
+    main._validate_files(_bundle_record())
+
+
+@pytest.mark.parametrize(
+    ("unsafe_service", "message"),
+    [
+        ("ports: ['3000:3000']", "host ports"),
+        ("privileged: true", "Privileged"),
+        ("network_mode: host", "Host networking"),
+        ("volumes: ['/var/run/docker.sock:/var/run/docker.sock']", "Docker socket"),
+    ],
+)
+def test_bundle_validation_rejects_unsafe_compose_features(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, unsafe_service: str, message: str
+) -> None:
+    """Unsafe host access must be rejected before a bundle enters the registry."""
+    source = tmp_path / "bundle"
+    source.mkdir()
+    (source / "compose.yml").write_text(
+        f"services:\n  frontend:\n    image: nginx:alpine\n    {unsafe_service}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(main, "REPO_ROOT", tmp_path)
+
+    with pytest.raises(Exception, match=message):
+        main._validate_files(_bundle_record())
+
+
+def test_generate_namespaces_bundle_services_volumes_and_public_route(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Generated bundle output must keep services internal and route only the public frontend."""
+    source = tmp_path / "bundle"
+    source.mkdir()
+    (source / "compose.yml").write_text(
+        "services:\n  postgres:\n    image: postgres:14\n    volumes: [data:/var/lib/postgresql/data]\n"
+        "  frontend:\n    image: nginx:alpine\n    depends_on: [postgres]\n"
+        "volumes:\n  data:\n", encoding="utf-8"
+    )
+    compose_path = tmp_path / "generated-compose.yml"
+    nginx_path = tmp_path / "generated-nginx.conf"
+    monkeypatch.setattr(main, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(main, "COMPOSE_OVERRIDE_PATH", compose_path)
+    monkeypatch.setattr(main, "NGINX_GENERATED_PATH", nginx_path)
+    monkeypatch.setattr(main, "GENERATED_DIR", tmp_path)
+    monkeypatch.setattr(main, "_refresh_nginx", lambda: None)
+    monkeypatch.setattr(main, "_read_apps", lambda: [{
+        **_bundle_record(), "route_path": "/bundle/", "enabled": True,
+    }])
+
+    main._generate()
+
+    compose = compose_path.read_text(encoding="utf-8")
+    nginx = nginx_path.read_text(encoding="utf-8")
+    assert "bundle-frontend:" in compose
+    assert "bundle-postgres:" in compose
+    assert "bundle-data:" in compose
+    assert "depends_on:\n    - bundle-postgres" in compose
+    assert "ports:" not in compose
+    assert "bundle-frontend:3000" in nginx
+
+
+def test_bundle_lifecycle_targets_all_services_and_preserves_volumes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bundle operations must use fixed service names and never issue a volume-removal command."""
+    record = _bundle_record()
+    services = ["bundle-postgres", "bundle-redis", "bundle-api", "bundle-frontend"]
+    commands: list[list[str]] = []
+    monkeypatch.setattr(main, "_find", lambda app_id: record)
+    monkeypatch.setattr(main, "_read_apps", lambda: [record])
+    monkeypatch.setattr(main, "_managed_service_names", lambda item: services)
+    monkeypatch.setattr(main, "_atomic_write", lambda records: None)
+    monkeypatch.setattr(main, "_generate", lambda: None)
+    monkeypatch.setattr(main, "_compose_command", lambda args: commands.append(args) or SimpleNamespace(stdout="logs"))
+
+    assert client.post("/api/apps/bundle/start").status_code == 200
+    assert client.post("/api/apps/bundle/stop").status_code == 200
+    assert client.post("/api/apps/bundle/restart").status_code == 200
+    assert client.post("/api/apps/bundle/rebuild").status_code == 200
+    assert client.get("/api/apps/bundle/logs").status_code == 200
+    assert client.request("DELETE", "/api/apps/bundle", json={"confirm_app_id": "bundle"}).status_code == 200
+
+    assert commands == [
+        ["up", "-d", "--build", *services], ["stop", *services], ["restart", *services],
+        ["build", *services], ["logs", "--no-color", "--tail", "100", *services], ["stop", *services],
+    ]
+    assert all("down" not in command and "-v" not in command for command in commands)

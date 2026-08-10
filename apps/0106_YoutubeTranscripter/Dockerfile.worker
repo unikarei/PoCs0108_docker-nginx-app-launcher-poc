@@ -1,0 +1,26 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies including ffmpeg for audio processing
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy Alembic configuration
+COPY alembic.ini /app/
+COPY alembic/ /app/alembic/
+
+# Copy application code
+COPY backend/ /app/
+
+# Create directory for audio files
+RUN mkdir -p /app/audio_files
+
+CMD ["celery", "-A", "worker", "worker", "--loglevel=info"]

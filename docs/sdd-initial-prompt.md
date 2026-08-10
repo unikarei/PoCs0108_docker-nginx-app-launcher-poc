@@ -1,400 +1,233 @@
-# GitHub Copilot 初期プロンプト
+# SDD Initial Prompt: Docker Nginx App Launcher PoC
 
-# WebApp Docker Nginx POC Project
+以下の指示に従い、Docker・Nginx・FastAPIを使った「複数アプリの
+Launcher管理PoC」を、Spec-Driven Development（SDD）で実装してください。
 
 ## 目的
 
-このプロジェクトは、Docker と Nginx の基本構造を理解するための POC、つまり検証用の最小Webアプリです。
+ローカルPC上で複数のFastAPIアプリをDockerコンテナとして実行し、Nginxを唯一の入口として、URLパスでアクセスできるようにします。Launcher画面から、登録済みアプリの確認、追加、編集、削除、起動、停止、再起動、再ビルド、ログ確認を行えるようにしてください。
 
-本格的なアプリケーションを作ることが目的ではありません。
-目的は、以下の仕組みを初心者でも理解できる形で確認することです。
-
-* 簡単なWebアプリを作る
-* 簡単なAPIを作る
-* WebアプリをDockerコンテナで動かす
-* Nginxをリバースプロキシとして使う
-* ローカルの名前付きURLでアクセスできるようにする
-* `/api` にアクセスするとAPIが動くことを確認する
-
----
-
-## プロジェクト名
-
-フォルダ名は以下とする。
+例:
 
 ```text
-webapp-docker-nginx-poc
+http://localhost:8080/launcher/
+http://localhost:8080/app1/
+http://localhost:8080/app4/
+http://localhost:8080/app5/
 ```
 
----
+これは学習用・ローカル検証用PoCです。クラウド、Kubernetes、データベース、本番用認可、インターネット公開は実装しません。
 
-## 作りたい構成
+## 最初に作成・更新するSDD成果物
 
-ブラウザから以下のURLにアクセスできるようにする。
+実装より先に、次の4ファイルを作成または更新してください。
 
 ```text
-http://test-function.local/
+.github/copilot-instructions.md
+docs/spec.md
+docs/architecture.md
+docs/task.md
 ```
 
-このURLにアクセスすると、簡単なWeb画面が表示される。
+各ファイルの役割は次のとおりです。
 
-また、以下のURLにアクセスするとAPIが動作する。
+| ファイル | 必須内容 |
+| --- | --- |
+| `copilot-instructions.md` | SDD手順、コーディング規約、禁止事項、検証規則 |
+| `spec.md` | 目的、機能要件、API、登録項目、成功条件 |
+| `architecture.md` | Browser/Nginx/Launcher/Manager API/Appの構成、ネットワーク、データフロー |
+| `task.md` | 実装順序、各タスクの検証方法、完了チェックボックス |
+
+実装中に要件・構成・運用方法が変わったら、必ず先にSDD文書を更新し、対応するタスクを追加してください。テスト成功後にのみタスクを`[x]`にしてください。
+
+## 必須アーキテクチャ
 
 ```text
-http://test-function.local/api/health
+Browser
+  │ http://localhost:8080
+  ▼
+Nginx container
+  │ Docker internal network (multiapp_net)
+  ├── Launcher container
+  └── App containers
+
+Launcher container
+  │ HTTP only
+  ▼
+Manager API on host (127.0.0.1:9000)
+  │ controlled Docker Compose commands
+  ▼
+Docker Engine
 ```
 
-```text
-http://test-function.local/api/add?a=1&b=2
-```
+### 厳守事項
 
----
+1. Nginxだけがホストへポート公開します。公開ポートは`8080:80`です。
+2. Launcherと各Appはホストポートを公開しません。Docker内部ネットワークのポート8000だけを使います。
+3. NginxはコンテナIPではなくDocker Composeサービス名で転送します。
+4. LauncherはDockerコマンド、Docker SDK、Docker socketを使いません。
+5. Launcherへ`/var/run/docker.sock`をマウントしてはいけません。
+6. Docker操作はホスト側Manager APIだけが行います。
+7. Manager APIは固定されたDocker Compose引数だけを実行し、リクエストで任意コマンドを受け取ってはいけません。
+8. 生成物`generated/docker-compose.apps.yml`と`generated/nginx.conf`は手編集禁止です。
 
 ## 技術スタック
 
-初心者向けの最小構成にする。
+```text
+Python 3.12
+FastAPI
+Uvicorn
+HTTPX
+Pydantic
+Docker / Docker Compose
+Nginx
+plain HTML / JavaScript
+Pytest
+```
 
-使用する技術は以下とする。
+React、Vue、Next.js、データベース、Kubernetesは使用しません。
 
-* Python
-* FastAPI
-* Uvicorn
-* Docker
-* Docker Compose
-* Nginx
+## アプリ契約
 
-今回は以下の技術は使わない。
-
-* React
-* Vue
-* Next.js
-* TypeScript
-* データベース
-* 認証機能
-* HTTPS
-* クラウドデプロイ
-* CI/CD
-
----
-
-## 重要な方針
-
-このプロジェクトでは、シンプルさを最優先する。
-
-GitHub Copilot は、以下の方針を必ず守ること。
-
-1. 初心者が理解できるように、できるだけ単純な構成にすること
-2. 不要な機能を追加しないこと
-3. ファイル数を増やしすぎないこと
-4. コードには初心者向けのコメントを入れること
-5. Dockerfile、docker-compose.yml、Nginx設定には特に丁寧なコメントを入れること
-6. 一度に大量のコードを作らず、Stepごとに実装すること
-7. 変更したファイルと変更理由を毎回説明すること
-8. まず設計用Markdownファイルを作ってから、実装コードを書くこと
-
----
-
-## 最初に作成するMarkdownファイル
-
-まず、実装コードを書く前に、以下の4つのMarkdownファイルを作成すること。
+各アプリは`apps/<folder>/`に置き、次を持ちます。
 
 ```text
-CopilotInstruction.md
-spec.md
-architecture.md
-task.md
+Dockerfile
+requirements.txt
+src/main.py
 ```
 
----
-
-# 1. CopilotInstruction.md に書く内容
-
-`CopilotInstruction.md` には、このプロジェクトでCopilotが守るべき開発ルールを書く。
-
-含める内容は以下。
-
-* このプロジェクトの目的
-* 初心者向けPOCであること
-* シンプルさを最優先すること
-* 不要な機能を追加しないこと
-* Docker / Nginx / FastAPI の関係をわかりやすく説明すること
-* 変更前に `spec.md`, `architecture.md`, `task.md` を確認すること
-* Stepごとに小さく実装すること
-* 各ファイルに初心者向けコメントを入れること
-* Windows + Docker Desktop でも理解しやすい説明にすること
-
----
-
-# 2. spec.md に書く内容
-
-`spec.md` には、作成するPOCの仕様を書く。
-
-## Web画面
-
-`/` にアクセスすると、簡単なHTML画面を返す。
-
-表示内容は以下。
+各アプリのFastAPIは以下を提供します。
 
 ```text
-Test Function POC
-This is a local Docker and Nginx POC application.
+GET /           # HTML画面
+GET /health     # JSON health
+GET /api/test   # JSON success
 ```
 
-画面には、以下のAPI確認用リンクを表示する。
+HTML内のAPI呼び出しは`./api/test`のような相対URLにしてください。アプリはNginxのサブパス配下で動くためです。
+
+各アプリ画面には日本語のDocker学習パネルを表示してください。
+
+- Dockerイメージ: Pythonベースイメージ、依存ライブラリ、アプリソース、起動命令を含む再利用可能な実行パッケージ
+- Dockerコンテナ: イメージから起動する実行単位。独立したプロセスとメモリーを持ち、内部ポート8000でNginxからの要求を受ける
+- 再ビルドはイメージを作り直し、起動・再起動はコンテナを動かす操作であること
+
+## 動的アプリ登録
+
+登録情報は`config/apps.json`に原子的に保存してください。
+
+| 項目 | 意味 |
+| --- | --- |
+| `display_name` | GUI表示名 |
+| `app_id` | 不変の管理ID・Composeサービス名。英小文字、数字、ハイフンのみ |
+| `source_directory` | Dockerビルド対象のプロジェクト相対フォルダー |
+| `route_path` | ブラウザ公開URL。例`/app5/` |
+| `internal_port` | コンテナ内部ポート |
+| `health_path` | ヘルスチェックパス |
+| `dockerfile` | ソースフォルダー内のDockerfile名 |
+
+`app_id`、フォルダー名、URLパスは一致しなくても構いません。
+
+例:
 
 ```text
-/api/health
-/api/add?a=1&b=2
+app_id            = app4-revive
+source_directory  = apps/app4
+route_path        = /app4/
 ```
 
-## API仕様
+Openリンクは必ず`route_path`を使い、`app_id`からURLを推測してはいけません。
 
-### GET /api/health
-
-以下のJSONを返す。
-
-```json
-{
-  "status": "ok",
-  "app": "test-function-poc"
-}
-```
-
-### GET /api/add?a=1&b=2
-
-クエリパラメータ `a` と `b` を受け取り、足し算結果を返す。
-
-返却例。
-
-```json
-{
-  "a": 1,
-  "b": 2,
-  "result": 3
-}
-```
-
----
-
-# 3. architecture.md に書く内容
-
-`architecture.md` には、システム構成を書く。
-
-全体構成は以下。
+Manager APIは、登録情報から次を生成してください。
 
 ```text
-Browser
-  |
-  | http://test-function.local/
-  v
-Nginx Container
-  |
-  | proxy_pass
-  v
-FastAPI App Container
+generated/docker-compose.apps.yml
+generated/nginx.conf
 ```
 
-## app コンテナ
+アプリ追加・編集・削除・再生成の後はNginxを再作成し、新しいルートを反映してください。Nginxは動的なDocker DNS名前解決を使い、未起動の新規アプリがあってもNginx自身は起動できるようにしてください。
 
-FastAPIアプリを動かす。
+## Launcher機能
 
-役割は以下。
+Launcherには次を実装してください。
 
-* Web画面を返す
-* APIを返す
-* コンテナ内の8000番ポートで待ち受ける
+- 登録済みアプリ一覧と状態表示
+- Open、Start、Stop、Restart、Rebuild、Logs、Edit、Delete
+- アプリ追加フォーム
+- プロジェクト・`apps/`配下を起点にしたフォルダーツリー選択
+- app_id、表示名、ソースディレクトリの説明用`?`ダイアログ
+- 起動・停止・再起動・再ビルドの違いを説明する`?`ダイアログ
+- Delete時に「ソースも削除するか」を二段階確認
 
-## nginx コンテナ
+フォルダー選択はファイルをアップロードしてはいけません。選択されたプロジェクト相対パスだけをフォームへ設定し、Manager API側でDockerfileの存在を検証してください。
 
-Nginxを動かす。
+## Manager API操作
 
-役割は以下。
-
-* ブラウザからのアクセスを受ける
-* `test-function.local` という名前でアクセスを受ける
-* Docker内部の `app:8000` に通信を転送する
-* `/` も `/api` も FastAPIアプリへ転送する
-
-## 通信の流れ
-
-Web画面の場合。
+Manager APIは以下の操作を提供してください。
 
 ```text
-Browser
-  -> http://test-function.local/
-  -> Nginx
-  -> app:8000
-  -> FastAPI
-  -> HTML response
+GET    /health
+GET    /api/apps
+GET    /api/directories
+POST   /api/apps
+PATCH  /api/apps/{app_id}
+DELETE /api/apps/{app_id}
+POST   /api/apps/{app_id}/start
+POST   /api/apps/{app_id}/stop
+POST   /api/apps/{app_id}/restart
+POST   /api/apps/{app_id}/rebuild
+GET    /api/apps/{app_id}/logs
+POST   /api/generate
 ```
 
-APIの場合。
+Startは、新規登録直後にも動くように次を使ってください。
 
 ```text
-Browser
-  -> http://test-function.local/api/health
-  -> Nginx
-  -> app:8000/api/health
-  -> FastAPI
-  -> JSON response
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml up -d --build <app_id>
 ```
 
----
+単純な`docker compose start <app_id>`は、まだコンテナが存在しない新規アプリには使えません。
 
-# 4. task.md に書く内容
+削除時はソースを残すことを既定値にしてください。ソース削除を許可するのは`apps/`配下の実ディレクトリだけです。プロジェクトルート、`apps`ルート、シンボリックリンク、プロジェクト外パスは拒否してください。
 
-`task.md` には、実装作業を小さなStepに分けて書く。
+## 実装・コメント規約
 
-## Step 1: フォルダ構成を作る
+- 初心者が読める小さく明示的なPythonとHTMLにしてください。
+- 大きな処理単位・関数の直前に目的を説明するコメントを置いてください。
+- 行内コメントを付ける場合は、開始列を可能な限り揃えてください。
+- 明確なエラーを返し、例外やDocker失敗を握りつぶさないでください。
 
-以下の構成にする。
+## 必須テストと運用確認
+
+Python変更後:
 
 ```text
-webapp-docker-nginx-poc/
-  app/
-    main.py
-    requirements.txt
-  nginx/
-    default.conf
-  Dockerfile
-  docker-compose.yml
-  README.md
-  CopilotInstruction.md
-  spec.md
-  architecture.md
-  task.md
+python -m pytest -q
 ```
 
-## Step 2: FastAPIアプリを作る
-
-作成するファイル。
+Windowsでの起動:
 
 ```text
-app/main.py
-app/requirements.txt
+scripts\run50_start_all.bat
 ```
 
-実装する内容。
-
-* `/` でHTMLを返す
-* `/api/health` でJSONを返す
-* `/api/add` で足し算結果を返す
-
-## Step 3: Dockerfileを作る
-
-FastAPIアプリをコンテナ化する。
-
-含める内容。
-
-* Python公式イメージを使う
-* requirements.txt をインストールする
-* appフォルダをコピーする
-* uvicornでFastAPIを起動する
-
-## Step 4: Nginx設定を作る
-
-作成するファイル。
+確認:
 
 ```text
-nginx/default.conf
+scripts\run35_docker_status.bat
+scripts\run40_nginx_check.bat
+scripts\run41_app_health_check.bat
+scripts\run42_manager_check.bat
 ```
 
-設定内容。
+動的アプリ追加後は、少なくとも以下を確認してください。
 
-* `test-function.local` へのアクセスを受ける
-* `app:8000` に proxy_pass する
-* `/` と `/api` の両方をFastAPIへ転送する
+1. Dockerfileを持つ`apps/<new-app>/`を作る
+2. 管理画面から一意の`app_id`と`route_path`で登録する
+3. 生成Compose・Nginx設定に項目が追加される
+4. 初回Startでビルド・コンテナ作成・起動ができる
+5. Nginx経由で`route_path`と`route_path + health`がHTTP 200になる
+6. Stop、Start、Rebuild、Restart、Delete（ソース保持／ソース削除）を確認する
 
-## Step 5: docker-compose.ymlを作る
-
-以下の2つのサービスを定義する。
-
-* app
-* nginx
-
-nginx は外部の80番ポートを受ける。
-app はDocker内部で8000番ポートを使う。
-
-## Step 6: hostsファイルを設定する
-
-Windowsのhostsファイルに以下を追加する前提で説明する。
-
-```text
-127.0.0.1 test-function.local
-```
-
-Windowsのhostsファイルの場所。
-
-```text
-C:\Windows\System32\drivers\etc\hosts
-```
-
-## Step 7: 起動確認する
-
-以下のコマンドで起動する。
-
-```bash
-docker compose up --build
-```
-
-確認するURL。
-
-```text
-http://test-function.local/
-http://test-function.local/api/health
-http://test-function.local/api/add?a=1&b=2
-```
-
-## Step 8: 停止方法を書く
-
-以下のコマンドで停止する。
-
-```bash
-docker compose down
-```
-
----
-
-## README.md に書く内容
-
-README.md には、初心者向けに以下を説明する。
-
-* このPOCの目的
-* FastAPIの役割
-* Dockerfileの役割
-* docker-compose.ymlの役割
-* Nginxの役割
-* reverse proxy の意味
-* proxy_pass の意味
-* `test-function.local` の意味
-* hostsファイルの意味
-* `/api` の意味
-* ブラウザからFastAPIまで通信が流れる仕組み
-* 起動方法
-* 停止方法
-* 動作確認方法
-
----
-
-## 実装時の注意
-
-実装コードを書く前に、必ず以下の4ファイルを先に作成すること。
-
-```text
-CopilotInstruction.md
-spec.md
-architecture.md
-task.md
-```
-
-その後、`task.md` のStepに従って、Step 1から順番に実装すること。
-
-一度に全部を作らず、各Stepごとに以下を説明すること。
-
-* 変更したファイル
-* 変更した理由
-* 次に確認すること
-
-このPOCの目的は、完成度の高いWebアプリを作ることではなく、DockerとNginxの基本構造を理解することである。
-
-そのため、余計な機能を追加せず、最小構成でわかりやすく作ること。
+完了時は、変更したSDD文書、実装ファイル、テスト結果、Docker実行結果、残る制約を簡潔に報告してください。

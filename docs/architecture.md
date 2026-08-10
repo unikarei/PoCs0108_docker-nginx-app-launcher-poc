@@ -1,580 +1,191 @@
-# Architecture: Docker + Nginx Multiple Web App Test Project
+# Architecture: Docker Nginx App Launcher PoC
 
-## 1. Architecture Overview
-
-This project uses Nginx as the only public entrance.
-
-All applications run as Docker services.
-
-Nginx forwards requests to each application through the Docker internal network.
-
-The Launcher application provides a control GUI.
-
-The Manager API receives controlled management requests from Launcher and performs start, stop, and status operations.
-
-Overall architecture:
+## 1. System overview
 
 ```text
 Browser
-  |
-  | http://localhost:8080
-  v
-Nginx container
-  |
-  | Docker internal network
-  |
-  +--> launcher container
-  |
-  +--> app1 container
-  |
-  +--> app2 container
-  |
-  +--> app3 container
-  |
-  +--> app4 container
-  |
-  +--> manager-api container or host-side manager service
+  │ http://localhost:8080
+  ▼
+Nginx container ── Docker network ── Launcher container
+  │                                  │
+  ├── dynamic app services            └── HTTP only
+  │    app1, app2, app3, ...              host.docker.internal:9000
+  │
+  └── service-name routing                 ▼
+                                           Manager API (host process)
+                                                │
+                                                ├── config/apps.json
+                                                ├── generated/*.yml, *.conf
+                                                └── controlled Docker Compose
 ```
 
----
+Nginx is the only publicly exposed container. Manager API runs on the host and
+is bound to `127.0.0.1:9000`; it is not routed through Nginx.
 
-## 2. Main Design Decision
+## 2. Components
 
-The key design decision is:
+### 2.1 Nginx
+
+- Image: `nginx:1.27-alpine`.
+- Host mapping: `8080:80` only.
+- Mounts `generated/nginx.conf` read-only as its active virtual host.
+- Routes `/launcher/` to `launcher:8000`.
+- Routes each registered `route_path` to its registered Compose service.
+- Uses Docker DNS resolver `127.0.0.11` and request-time upstream variables for
+  generated app routes. This prevents Nginx startup failure when a just-added
+  service has not been started yet.
+
+### 2.2 Launcher
+
+- FastAPI process in a Docker container, internal port `8000`.
+- Calls the host Manager API through `host.docker.internal:9000`.
+- Offers legacy app list/status actions and dynamic management page.
+- Applies Basic authentication to management endpoints.
+- Does not access Docker Engine, local files, or the Docker socket.
+
+### 2.3 Manager API
+
+- FastAPI process started on the Windows host by `scripts/run20_manager_start`.
+- Owns registry validation, persistence, Compose/Nginx generation, lifecycle
+  command execution, and source deletion safeguards.
+- Invokes only this Compose shape:
 
 ```text
-Use Method B for start and stop operations.
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml <fixed arguments>
 ```
 
-This means:
+- Recreates Nginx after configuration generation to activate route changes.
 
-- Launcher does not control Docker directly.
-- Launcher does not mount Docker socket.
-- Launcher calls Manager API.
-- Manager API is responsible for executing controlled commands.
+### 2.4 Application services
 
-This is safer than mounting Docker socket into the Launcher.
+- Source folders: `apps/<folder>/`.
+- Each Dockerfile starts from `python:3.12-slim`, installs requirements, copies
+  `src`, and runs Uvicorn on port `8000`.
+- Services are dynamically named by `app_id`, not source folder name.
+- Each page includes a Docker learning panel that distinguishes image from
+  container.
 
----
+### 2.5 Validated Compose bundles
 
-## 3. Service List
+A bundle is one Launcher registration containing several generated services.
+For example, a transcription app can contain a browser-facing Next.js frontend,
+an internal API, PostgreSQL with a named data volume, Redis, a one-shot schema
+migration, and a Celery worker. Nginx routes only to the bundle's declared
+public service; all other services use Compose service names on `multiapp_net`.
 
-### 3.1 nginx
+Manager API parses the source Compose file as data and generates a normalized
+entry in `generated/docker-compose.apps.yml`. It validates the permitted
+Compose subset, prefixes every generated service and named volume with the
+registration `app_id`, removes all host port publication, and rejects unsafe
+features such as host networking, privileged mode, Docker socket mounts, or
+paths that escape the bundle source. This preserves the existing security
+boundary: Launcher still communicates only by HTTP and Nginx remains the sole
+host-port publisher.
 
-Role:
-
-- Public entrance
-- Reverse proxy
-- Path-based routing
-
-Host port:
+## 3. Registry and generation flow
 
 ```text
-8080:80
-```
-
-Routes:
-
-```text
-/launcher/  -> launcher:8000
-/app1/      -> app1:8000
-/app2/      -> app2:8000
-/app3/      -> app3:8000
-/app4/      -> app4:8000
-```
-
-### 3.2 launcher
-
-Role:
-
-- Management GUI
-- App list screen
-- Open app buttons
-- Status display
-- Start and stop request sender
-
-The Launcher does not execute Docker commands.
-
-It sends requests to Manager API.
-
-### 3.3 app1
-
-Role:
-
-- Test app 1
-- Provides GUI
-- Provides API endpoint
-
-Internal port:
-
-```text
-8000
-```
-
-### 3.4 app2
-
-Role:
-
-- Test app 2
-- Provides GUI
-- Provides API endpoint
-
-Internal port:
-
-```text
-8000
-```
-
-### 3.5 app3
-
-Role:
-
-- Test app 3
-- Provides GUI
-- Provides API endpoint
-
-Internal port:
-
-```text
-8000
-```
-
-### 3.6 manager-api
-
-Role:
-
-- Receives management requests
-- Checks container status
-- Starts app services
-- Stops app services
-
-The first PoC may implement Manager API in one of two patterns.
-
-### 3.7 app4
-
-Role:
-
-- Test app 4
-- Provides GUI
-- Provides API endpoint
-
-Internal port:
-
-```text
-8000
-```
-
----
-
-## 4. Manager API Design
-
-### 4.1 Recommended PoC Design
-
-The Manager API runs as a small host-side service outside Docker.
-
-The Launcher calls it through a controlled URL.
-
-Example:
-
-```text
-http://host.docker.internal:9000
-```
-
-On Windows Docker Desktop, `host.docker.internal` is commonly available.
-
-This host-side manager executes commands such as:
-
-```text
-docker compose start app1
-docker compose stop app1
-docker compose ps app1
-```
-
-This avoids mounting Docker socket into a container.
-
-### 4.2 Alternative Design
-
-The Manager API can run as a container only if it does not require Docker socket mount.
-
-If Docker control is required, host-side Manager API is preferred.
-
-### 4.3 Security Boundary
-
-The Manager API must expose only limited operations.
-
-Allowed operations:
-
-```text
-GET  /api/status
-POST /api/start/app1
-POST /api/start/app2
-POST /api/start/app3
-POST /api/start/app4
-POST /api/stop/app1
-POST /api/stop/app2
-POST /api/stop/app3
-POST /api/stop/app4
-```
-
-Disallowed operations:
-
-- Arbitrary command execution
-- Free text shell command execution
-- Direct Docker socket exposure to Launcher
-- Container creation from arbitrary image names
-- File system access from web request
-
----
-
-## 5. Network Architecture
-
-Docker Compose creates one internal network.
-
-Example network name:
-
-```text
-multiapp_net
-```
-
-All Docker services join this network:
-
-```text
-nginx
-launcher
-app1
-app2
-app3
-app4
-```
-
-Nginx uses service names to forward requests.
-
-Do not use fixed container IP addresses.
-
----
-
-## 6. Routing Architecture
-
-Nginx path routing:
-
-```text
-location /launcher/ {
-    proxy_pass http://launcher:8000/;
-}
-
-location /app1/ {
-    proxy_pass http://app1:8000/;
-}
-
-location /app2/ {
-    proxy_pass http://app2:8000/;
-}
-
-location /app3/ {
-    proxy_pass http://app3:8000/;
-}
-
-location /app4/ {
-  proxy_pass http://app4:8000/;
-}
-```
-
-Important note:
-
-Because apps are served under subpaths, the application should generate relative URLs or be aware of its base path.
-
-For the first PoC, use relative paths as much as possible.
-
----
-
-## 7. Application Internal Architecture
-
-Each app uses the same simple pattern.
-
-```text
-Browser page
-  ↓ button click
-Backend API
-  ↓
-JSON response
-  ↓
-Message displayed on page
-```
-
-Each app provides:
-
-```text
-GET /
-GET /health
-GET /api/test
-```
-
-Example `/api/test` response:
-
-```json
-{
-  "status": "success",
-  "message": "App1 backend responded successfully."
-}
-```
-
----
-
-## 8. Launcher Internal Architecture
-
-Launcher provides:
-
-```text
-GET /
-GET /health
-GET /api/apps
-GET /api/status
-POST /api/start/{app_name}
-POST /api/stop/{app_name}
-```
-
-Launcher communicates with Manager API.
-
-Launcher should not directly run Docker commands.
-
-Launcher should not import Docker SDK unless explicitly approved.
-
----
-
-## 9. Manager API Internal Architecture
-
-Manager API provides controlled endpoints.
-
-Example:
-
-```text
-GET  /health
-GET  /api/status
-GET  /api/status/app1
-POST /api/start/app1
-POST /api/stop/app1
-```
-
-Internally, Manager API may call a controlled script or command.
-
-Example:
-
-```text
-docker compose start app1
-docker compose stop app1
-docker compose ps app1
-```
-
-The Manager API must validate app names.
-
-Allowed app names:
-
-```text
-app1
-app2
-app3
-app4
-```
-
-Any other app name must be rejected.
-
----
-
-## 10. Folder Architecture
-
-Target folder structure:
-
-```text
-docker-nginx-multiapp-test/
-├─ .github/
-│  └─ copilot-instructions.md
-├─ docker-compose.yml
-├─ README.md
-├─ docs/
-│  ├─ spec.md
-│  ├─ architecture.md
-│  └─ task.md
-├─ nginx/
-│  └─ nginx.conf
-├─ manager-api/
-│  ├─ Dockerfile
-│  ├─ requirements.txt
-│  └─ src/
-│     └─ main.py
-├─ launcher/
-│  ├─ Dockerfile
-│  ├─ requirements.txt
-│  └─ src/
-│     └─ main.py
-├─ apps/
-│  ├─ app1/
-│  │  ├─ Dockerfile
-│  │  ├─ requirements.txt
-│  │  └─ src/
-│  │     └─ main.py
-│  ├─ app2/
-│  │  ├─ Dockerfile
-│  │  ├─ requirements.txt
-│  │  └─ src/
-│  │     └─ main.py
-│  └─ app3/
-│     ├─ Dockerfile
-│     ├─ requirements.txt
-│     └─ src/
-│        └─ main.py
-└─ scripts/
-   ├─ start.bat
-   ├─ stop.bat
-   ├─ status.bat
-   ├─ manager_start.bat
-   └─ manager_stop.bat
-```
-
----
-
-## 11. Docker Compose Architecture
-
-Expected services:
-
-```text
-nginx
-launcher
-app1
-app2
-app3
-```
-
-In the safer Method B design, `manager-api` may be launched outside Docker by a script.
-
-Therefore, initial Docker Compose may include:
-
-```text
-nginx
-launcher
-app1
-app2
-app3
-```
-
-And the host-side manager is started separately:
-
-```text
-scripts/manager_start.bat
-```
-
-This separation makes Docker control safer and clearer for beginners.
-
----
-
-## 12. Start and Stop Flow
-
-### 12.1 Start Flow
-
-```text
-User
-  ↓
-Launcher Start Button
-  ↓
-Launcher API
-  ↓
+Launcher management form
+  │ validated HTTP request
+  ▼
 Manager API
-  ↓
-Controlled docker compose start app1
-  ↓
-Status returned to Launcher
+  │ validate app_id, route, Dockerfile, source path, uniqueness
+  ▼
+config/apps.json  (atomic replace)
+  │
+  ├── generated/docker-compose.apps.yml
+  └── generated/nginx.conf
+          │
+          ▼
+docker compose up -d --force-recreate nginx
 ```
 
-### 12.2 Stop Flow
+`config/apps.json` is the source of truth for registered apps. Generated files
+are deterministic outputs and must not be edited manually.
+
+## 4. Lifecycle flow
+
+### Start a newly registered application
 
 ```text
-User
-  ↓
-Launcher Stop Button
-  ↓
-Launcher API
-  ↓
-Manager API
-  ↓
-Controlled docker compose stop app1
-  ↓
-Status returned to Launcher
+Launcher → Manager API → docker compose up -d --build <app_id>
+                         → build image from source_directory
+                         → create/run container on multiapp_net
+Browser → Nginx → Docker DNS → app service:internal_port
 ```
 
-### 12.3 Open App Flow
+`up -d --build` is required because `docker compose start` works only when a
+container already exists.
+
+### Rebuild and restart
 
 ```text
-User
-  ↓
-Launcher Open Button
-  ↓
-Browser opens /app1/
-  ↓
-Nginx
-  ↓
-app1 container
+Rebuild: Manager API → docker compose build <app_id>
+Restart: Manager API → docker compose restart <app_id>
 ```
 
----
+If an app container is rebuilt or recreated, Nginx must be recreated afterwards
+to avoid using stale container addresses. The operation scripts do this, and
+Manager API does it whenever generation changes routes.
 
-## 13. Design Limitations
-
-This architecture is safer than Docker socket mount, but it is still a PoC.
-
-Before production use, consider:
-
-- Authentication for Manager API
-- IP restriction for Manager API
-- HTTPS
-- Logging
-- Command timeout
-- Strict command validation
-- Running manager only on localhost
-- Firewall rules
-
----
-
-## 14. Future Extension
-
-To add app4:
-
-1. Create `apps/app4`
-2. Add `app4` service to Docker Compose
-3. Add Nginx location `/app4/`
-4. Add app4 item to Launcher registration
-5. Add app4 to Manager API allowed app list
-
----
-
-## 15. Script Operation Layer
-
-For reproducible local execution, operation scripts are organized under `scripts/` with a run-number convention.
-
-Main entry scripts:
+### Start a registered bundle
 
 ```text
-run20_manager_start
-run21_manager_stop
-run35_docker_status
-run40_nginx_check
-run41_app_health_check
-run42_manager_check
-run50_start_all
-run51_stop_all
+Launcher → Manager API → validate bundle definition
+                         → generate prefixed internal services
+                         → docker compose up -d --build <bundle services>
+Browser  → Nginx → declared public service
+                       ├── API
+                       ├── PostgreSQL named volume
+                       ├── Redis
+                       └── worker
 ```
 
-Compatibility wrappers (`start`, `stop`, `status`, `manager_start`, `manager_stop`) delegate to these run scripts.
+Stopping a bundle stops all of its services but does not remove named volumes.
+Deleting its registry entry removes the generated services and route; database
+volume deletion is a separate, explicit future operation.
 
-## 16. Dynamic registration architecture
+## 5. Network and security boundaries
 
-The host-side Manager API owns `config/apps.json` and atomically persists
-validated registrations. It generates `generated/docker-compose.apps.yml` and
-`generated/nginx.conf`. Docker commands always use an argument array and the
-generated Compose override; arbitrary shell input is not accepted.
+| Boundary | Rule |
+| --- | --- |
+| Browser → Nginx | only public Docker port |
+| Nginx → Launcher/apps | Compose service names on `multiapp_net` |
+| Launcher → Manager API | controlled HTTP to host-side loopback service |
+| Manager API → Docker | fixed Compose command arguments only |
+| Launcher → Docker socket | forbidden |
+| Source deletion | only real directories below `apps/` |
 
-Nginx mounts the generated configuration read-only. The Launcher only calls
-Manager API and presents the registration and lifecycle operations; it never
-accesses Docker or host files directly.
+## 6. Identity mapping example
 
-When a service container is recreated, Nginx is also recreated or reloaded
-before browser verification. This refreshes Docker DNS and avoids 502 errors
-caused by an upstream IP from an older container instance.
+| Concept | Example | Meaning |
+| --- | --- | --- |
+| GUI name | `test` | label shown to users |
+| app_id | `app4-revive` | Compose service and management target |
+| source directory | `apps/app4` | Docker build context |
+| route path | `/app4/` | browser URL |
+| image | project-prefixed `app4-revive` image | reusable build output |
+| container | project-prefixed `app4-revive-1` | running image instance |
+
+The values intentionally may not match.
+
+## 7. Reproduction prerequisites
+
+- Docker Desktop running and accessible to the user.
+- Python environment with FastAPI, HTTPX, Pydantic, Uvicorn, and Pytest.
+- Windows: use `.bat` scripts; POSIX: use matching `.sh` scripts.
+- Project directory writable, including `config/`, `generated/`, and `.run/`.
+
+## 8. Operational recovery
+
+The Docker start and stop scripts use the same Compose-file pair:
+`docker-compose.yml` and `generated/docker-compose.apps.yml`. This ensures a
+shutdown removes Nginx, Launcher, and every registered application service.
+
+| Symptom | Likely cause | Recovery |
+| --- | --- | --- |
+| 404 after app registration | Nginx has old generated config | `POST /api/generate` or recreate Nginx |
+| Nginx fails with upstream host not found | static upstream resolution for stopped new service | use generated dynamic resolver config |
+| Start fails for new app | container does not exist yet | use Start, which runs `up -d --build` |
+| 502 after container recreation | Nginx has stale upstream connection/address | recreate Nginx |
+| Open goes to wrong URL | app_id used as URL | use record's route_path |

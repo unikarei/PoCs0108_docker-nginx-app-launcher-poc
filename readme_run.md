@@ -282,7 +282,7 @@ docker compose up --build -d
 Docker Compose一式を停止します。
 
 ```text
-docker compose down
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml down
 ```
 
 ---

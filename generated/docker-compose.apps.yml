@@ -4,10 +4,17 @@ services:
     build:
       context: apps/app1
       dockerfile: Dockerfile
-    expose: [8000]
-    networks: [multiapp_net]
+    expose:
+    - '8000'
+    networks:
+    - multiapp_net
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
       interval: 10s
       timeout: 5s
       retries: 5
@@ -16,10 +23,17 @@ services:
     build:
       context: apps/app2
       dockerfile: Dockerfile
-    expose: [8000]
-    networks: [multiapp_net]
+    expose:
+    - '8000'
+    networks:
+    - multiapp_net
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,10 +42,17 @@ services:
     build:
       context: apps/app3
       dockerfile: Dockerfile
-    expose: [8000]
-    networks: [multiapp_net]
+    expose:
+    - '8000'
+    networks:
+    - multiapp_net
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,10 +61,17 @@ services:
     build:
       context: apps/app4
       dockerfile: Dockerfile
-    expose: [8000]
-    networks: [multiapp_net]
+    expose:
+    - '8000'
+    networks:
+    - multiapp_net
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
       interval: 10s
       timeout: 5s
       retries: 5
@@ -52,11 +80,86 @@ services:
     build:
       context: apps/app5
       dockerfile: Dockerfile
-    expose: [8000]
-    networks: [multiapp_net]
+    expose:
+    - '8000'
+    networks:
+    - multiapp_net
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 5s
+  youtube-transcripter-postgres:
+    image: postgres:14
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-youtube_transcription}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+    - youtube-transcripter-postgres_data:/var/lib/postgresql/data
+    networks:
+    - multiapp_net
+  youtube-transcripter-redis:
+    image: redis:7-alpine
+    volumes:
+    - youtube-transcripter-redis_data:/data
+    networks:
+    - multiapp_net
+  youtube-transcripter-migrate:
+    build:
+      context: apps/0106_YoutubeTranscripter/.
+      dockerfile: Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
+    depends_on:
+    - youtube-transcripter-postgres
+    command: alembic upgrade head
+    networks:
+    - multiapp_net
+  youtube-transcripter-api:
+    build:
+      context: apps/0106_YoutubeTranscripter/.
+      dockerfile: Dockerfile.api
+    env_file: apps/0106_YoutubeTranscripter/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+    - youtube-transcripter-postgres
+    - youtube-transcripter-redis
+    - youtube-transcripter-migrate
+    networks:
+    - multiapp_net
+  youtube-transcripter-worker:
+    build:
+      context: apps/0106_YoutubeTranscripter/.
+      dockerfile: Dockerfile.worker
+    env_file: apps/0106_YoutubeTranscripter/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+    - youtube-transcripter-postgres
+    - youtube-transcripter-redis
+    - youtube-transcripter-migrate
+    networks:
+    - multiapp_net
+  youtube-transcripter-frontend:
+    build:
+      context: apps/0106_YoutubeTranscripter/./frontend
+      dockerfile: Dockerfile.launcher
+    environment:
+      INTERNAL_API_URL: http://api:8000
+    depends_on:
+    - youtube-transcripter-api
+    networks:
+    - multiapp_net
+volumes:
+  youtube-transcripter-postgres_data: null
+  youtube-transcripter-redis_data: null

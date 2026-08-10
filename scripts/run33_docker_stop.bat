@@ -10,7 +10,7 @@ echo ========================================================= & rem Print title
 
 if not exist "docker-compose.yml" goto :missing_compose       & rem Require docker-compose.yml.
 
-docker compose down                                           & rem Stop and remove Compose containers and network.
+docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml down & rem Stop and remove base and generated Compose containers and network.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker Compose fails.
 
 echo [OK] Docker services were stopped.                        & rem Show success message.

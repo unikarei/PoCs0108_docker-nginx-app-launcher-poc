@@ -1,555 +1,296 @@
-# Task List: Docker + Nginx Multiple Web App Test Project
+# Task List: Reproducible Docker Nginx App Launcher PoC
 
-## Task Checkbox Rule
+## Task rules
 
-Each task title must start with a checkbox.
+- `[ ]` means pending; `[x]` means verified complete.
+- Implement in order unless a task explicitly depends on a later correction.
+- Before marking complete, run its listed verification.
+- Keep completed tasks as an audit trail.
 
-Use:
+## Phase 0: Prepare repository and SDD documents
 
-```text
-[ ] Not completed
-[x] Completed
-```
+### [x] Task 0.1 Create project layout
 
-When a task is completed, change `[ ]` to `[x]`.
+Create `.github/`, `docs/`, `apps/`, `launcher/`, `manager-api/`, `config/`,
+`generated/`, `scripts/`, and `tests/`.
 
-Do not delete completed tasks. Keep them as project history.
+### [x] Task 0.2 Create detailed SDD documents
 
-## Phase 0: Preparation
+Create `.github/copilot-instructions.md`, `docs/spec.md`,
+`docs/architecture.md`, and this task list before implementation.
 
-### [x] Task 0.1 Create project folder
+Verification: documents describe current requirements, architecture, reproduction
+steps, and verification conditions.
 
-Create the base folder:
+## Phase 1: Build sample applications
 
-```text
-docker-nginx-multiapp-test
-```
+### [x] Task 1.1 Create app1–app4 source templates
 
-### [x] Task 0.2 Create SDD documents
+Each app has `Dockerfile`, `requirements.txt`, and `src/main.py` with root,
+health, and test endpoints.
 
-Create:
+### [x] Task 1.2 Make applications subpath-safe
 
-```text
-.github/copilot-instructions.md
-docs/spec.md
-docs/architecture.md
-docs/task.md
-```
+Use relative browser API URLs such as `./api/test`.
 
-Status:
+### [x] Task 1.3 Add Docker learning panels
 
-```text
-[x] Done in Step 1
-```
+Display per-app explanations of Docker image contents, Docker container runtime
+meaning, internal port 8000, and rebuild/start/restart behavior.
 
----
+Verification: application root pages contain both “Dockerイメージ” and
+“Dockerコンテナ” explanations.
 
-## Phase 1: Minimum App Implementation
+## Phase 2: Create host-side Manager API
 
-### [x] Task 1.1 Create app1
+### [x] Task 2.1 Define validated registry model
 
-Create app1 with:
+Persist `display_name`, `app_id`, `source_directory`, `route_path`, port,
+health path, Dockerfile, description, enabled state, and timestamps in
+`config/apps.json`.
 
-```text
-apps/app1/
-├─ Dockerfile
-├─ requirements.txt
-└─ src/
-   └─ main.py
-```
+### [x] Task 2.2 Implement safe path and uniqueness validation
 
-Requirements:
+Reject unsafe paths, absent Dockerfiles, invalid IDs/routes, duplicate IDs, and
+duplicate routes.
 
-- FastAPI app
-- `GET /`
-- `GET /health`
-- `GET /api/test`
-- Simple HTML page with one button
-- Button shows success message
+### [x] Task 2.3 Generate Compose and Nginx artifacts
 
-Expected message:
+Generate `generated/docker-compose.apps.yml` and `generated/nginx.conf` from
+enabled records. Treat both as derived files.
 
-```text
-App1 backend responded successfully.
-```
+### [x] Task 2.4 Implement CRUD and folder-tree API
 
-### [x] Task 1.2 Create app2
+Provide list, add, update, delete, inspect, and directory-list endpoints.
 
-Create app2 using same structure as app1.
+### [x] Task 2.5 Implement lifecycle and log API
 
-Expected message:
+Provide status, initial Start (`up -d --build`), Stop, Restart, Rebuild, and
+bounded Logs. Never allow request-provided shell commands.
 
-```text
-App2 backend responded successfully.
-```
+### [x] Task 2.6 Implement safe source deletion
 
-### [x] Task 1.3 Create app3
+Require matching confirmation ID; preserve source by default; permit recursive
+deletion only for real directories below `apps/`.
 
-Create app3 using same structure as app1.
+### [x] Task 2.7 Refresh Nginx after generated configuration changes
 
-Expected message:
+Recreate Nginx after add, update, delete, or explicit generation. Use Docker
+DNS at request time for generated app routes so stopped new services do not
+prevent Nginx from starting.
 
-```text
-App3 backend responded successfully.
-```
+Verification: unit test generated route and Nginx refresh call; add a new app,
+then verify its route is present without manual Nginx editing.
 
----
+## Phase 3: Create Launcher
 
-## Phase 2: Launcher Implementation
+### [x] Task 3.1 Implement basic Launcher page
 
-### [x] Task 2.1 Create Launcher folder
+List apps, statuses, Open, Start, Stop, and Delete controls.
 
-Create:
+### [x] Task 3.2 Proxy management API calls
 
-```text
-launcher/
-├─ Dockerfile
-├─ requirements.txt
-└─ src/
-   └─ main.py
-```
+Launcher communicates with host-side Manager API through HTTP only and never
+calls Docker directly.
 
-### [x] Task 2.2 Create Launcher page
+### [x] Task 3.3 Implement management page
 
-Launcher page must show:
+Support add/edit/delete/lifecycle/log actions. Use distinct display name,
+app_id, source directory, and route path fields.
 
-- app1
-- app2
-- app3
+### [x] Task 3.4 Implement source folder-tree dialog
 
-Each app row must have:
+Open a project-relative tree, select `apps` initially, and submit only the
+selected relative folder path. Do not upload files.
 
-- Status display
-- Open button
-- Start button
-- Stop button
+### [x] Task 3.5 Add operational help
 
-### [x] Task 2.3 Create Launcher API
+Add blue `?` help controls for field definitions and lifecycle action guidance.
 
-Create Launcher endpoints:
+### [x] Task 3.6 Fix Open route behavior
 
-```text
-GET  /
-GET  /health
-GET  /api/apps
-GET  /api/status
-POST /api/start/{app_name}
-POST /api/stop/{app_name}
-```
+Generate Open links from `route_path`, never from `app_id`.
 
-### [x] Task 2.4 Connect Launcher to Manager API
+Verification: an app with different `app_id` and `route_path` opens at the
+registered route.
 
-Launcher must call Manager API for:
+## Phase 4: Compose, Nginx, and scripts
 
-- status
-- start
-- stop
+### [x] Task 4.1 Configure base Compose services
 
-Launcher must not call Docker directly.
+Define Nginx and Launcher, internal `multiapp_net`, Nginx port `8080:80`, and
+read-only generated Nginx configuration mount.
 
----
+### [x] Task 4.2 Add host-side Manager API scripts
 
-## Phase 3: Manager API Implementation
+Provide `run20_manager_start` and `run21_manager_stop` scripts using `.run/`
+PID tracking.
 
-### [x] Task 3.1 Create Manager API folder
+### [x] Task 4.3 Add Docker and verification scripts
 
-Create:
+Provide numbered start/stop/status/Nginx/app-health/Manager checks in both
+batch and shell forms.
+
+### [x] Task 4.4 Recreate Nginx after app replacement
+
+`run32_docker_start_detached` recreates Nginx after app recreation to prevent
+stale upstream addresses and 502 errors.
+
+## Phase 5: Automated tests
+
+### [x] Task 5.1 Add Manager API tests
+
+Test invalid app IDs, registration generation, route refresh, lifecycle command
+allowlist, preserve-source deletion, safe source deletion, and unsafe root
+rejection.
+
+### [x] Task 5.2 Run regression suite
+
+Verification command:
 
 ```text
-manager-api/
-├─ requirements.txt
-└─ src/
-   └─ main.py
+python -m pytest -q
 ```
 
-Note:
+Expected current result: `11 passed` or more as tests are extended.
 
-In Method B, Manager API is preferably run on the host side, not inside Docker.
+## Phase 6: End-to-end reproduction procedure
 
-A Dockerfile for Manager API is optional in the first PoC.
+### [x] Task 6.1 Start the stack
 
-### [x] Task 3.2 Create Manager API endpoints
-
-Create:
+Windows:
 
 ```text
-GET  /health
-GET  /api/status
-GET  /api/status/{app_name}
-POST /api/start/{app_name}
-POST /api/stop/{app_name}
+scripts\run50_start_all.bat
 ```
 
-### [x] Task 3.3 Validate app names
-
-Allowed app names:
+POSIX:
 
 ```text
-app1
-app2
-app3
+./scripts/run50_start_all.sh
 ```
 
-Reject all other names.
-
-### [x] Task 3.4 Execute controlled Docker Compose commands
-
-Manager API may execute:
-
-```text
-docker compose ps
-docker compose start app1
-docker compose stop app1
-docker compose start app2
-docker compose stop app2
-docker compose start app3
-docker compose stop app3
-```
-
-Do not allow arbitrary command strings from user input.
-
-### [x] Task 3.5 Add command timeout and error handling
-
-Add:
-
-- timeout
-- clear error message
-- return code check
-- stdout and stderr capture
-
----
-
-## Phase 4: Docker Compose
-
-### [x] Task 4.1 Create docker-compose.yml
-
-Define services:
-
-```text
-nginx
-launcher
-app1
-app2
-app3
-```
-
-Do not expose host ports for:
-
-```text
-launcher
-app1
-app2
-app3
-```
-
-Only expose:
-
-```text
-nginx:
-  ports:
-    - "8080:80"
-```
-
-### [x] Task 4.2 Create Docker internal network
-
-Create:
-
-```text
-multiapp_net
-```
-
-Attach all services to it.
-
-### [x] Task 4.3 Add health checks if simple
-
-Add simple health checks if they do not make the configuration too complex.
-
----
-
-## Phase 5: Nginx
-
-### [x] Task 5.1 Create nginx folder
-
-Create:
-
-```text
-nginx/
-└─ nginx.conf
-```
-
-### [x] Task 5.2 Add reverse proxy settings
-
-Add route rules:
-
-```text
-/launcher/ -> launcher:8000
-/app1/     -> app1:8000
-/app2/     -> app2:8000
-/app3/     -> app3:8000
-```
-
-### [x] Task 5.3 Add proxy headers
-
-Add standard proxy headers:
-
-```text
-Host
-X-Real-IP
-X-Forwarded-For
-X-Forwarded-Proto
-```
-
----
-
-## Phase 6: Scripts
-
-### [x] Task 6.1 Create start script
-
-Create:
-
-```text
-scripts/run50_start_all.bat
-scripts/run50_start_all.sh
-scripts/start.bat
-scripts/start.sh
-```
-
-Purpose:
-
-```text
-Start Manager API and Docker services in sequence.
-```
-
-### [x] Task 6.2 Create stop script
-
-Create:
-
-```text
-scripts/run51_stop_all.bat
-scripts/run51_stop_all.sh
-scripts/stop.bat
-scripts/stop.sh
-```
-
-Purpose:
-
-```text
-Stop Docker services and Manager API in sequence.
-```
-
-### [x] Task 6.3 Create status script
-
-Create:
-
-```text
-scripts/run35_docker_status.bat
-scripts/run35_docker_status.sh
-scripts/status.bat
-scripts/status.sh
-```
-
-Purpose:
-
-```text
-docker compose ps
-```
-
-### [x] Task 6.4 Create Manager API start script
-
-Create:
-
-```text
-scripts/run20_manager_start.bat
-scripts/run20_manager_start.sh
-scripts/manager_start.bat
-scripts/manager_start.sh
-```
-
-Purpose:
-
-Start host-side Manager API.
-
-Example behavior:
-
-```text
-cd manager-api
-python -m uvicorn src.main:app --host 127.0.0.1 --port 9000
-```
-
-### [x] Task 6.5 Create Manager API stop script
-
-Create:
-
-```text
-scripts/run21_manager_stop.bat
-scripts/run21_manager_stop.sh
-scripts/manager_stop.bat
-scripts/manager_stop.sh
-```
-
-Purpose:
-
-Stop host-side Manager API.
-
-For first PoC, it may only show instructions.
-
----
-
-## Phase 7: Verification
-
-### [x] Task 7.1 Start Manager API
+### [x] Task 6.2 Verify services
 
 Run:
 
 ```text
-scripts/run20_manager_start.bat
-or scripts/manager_start.bat
+scripts\run35_docker_status.bat
+scripts\run40_nginx_check.bat
+scripts\run41_app_health_check.bat
+scripts\run42_manager_check.bat
 ```
 
-Confirm:
+### [x] Task 6.3 Verify dynamic registration
 
-```text
-http://127.0.0.1:9000/health
-```
+1. Create `apps/<new-app>/` containing Dockerfile, requirements, and FastAPI
+   source.
+2. In `/launcher/manage`, select its folder, set a unique app ID and route.
+3. Register it.
+4. Click Start once; this builds and creates the container.
+5. Open its `route_path` and verify `/health` returns HTTP 200.
+6. Test Stop, Start, Rebuild, Restart, Delete-preserve, and Delete-source.
 
-### [x] Task 7.2 Start Docker services
+## Phase 7: Documentation maintenance
 
-Run:
+### [x] Task 7.1 Keep reproduction documentation current
 
-```text
-scripts/run32_docker_start_detached.bat
-or scripts/start.bat
-```
+Update all four SDD files whenever the implementation or operational behavior
+changes.
 
-### [x] Task 7.3 Confirm Docker status
+### [x] Task 7.2 Stop generated application services
 
-Run:
+Make `run33_docker_stop` pass both Compose files to `docker compose down`, so
+it stops and removes Nginx, Launcher, and every registered application service.
 
-```text
-scripts/run35_docker_status.bat
-or scripts/status.bat
-```
+Verification: inspect the command in both batch and POSIX scripts, then run
+`docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml config --services`.
 
-### [x] Task 7.4 Open Launcher
+### [x] Task 7.3 Document executable code units
 
-Open:
+Add beginner-friendly module overviews and professional docstrings to the
+classes and functions in the Manager API, Launcher, and sample application
+source files without changing their runtime behavior.
 
-```text
-http://localhost:8080/launcher/
-```
+Verification: compile the updated Python modules and run `python -m pytest -q`.
 
-### [x] Task 7.5 Open each app
+### [x] Task 7.4 Separate application management with tabs
 
-Open:
+Show the registration form and the registered-applications list as accessible
+tabs on the management page. Keep all existing registration and lifecycle APIs
+unchanged.
 
-```text
-http://localhost:8080/app1/
-http://localhost:8080/app2/
-http://localhost:8080/app3/
-http://localhost:8080/app4/
-```
+Verification: compile the Launcher module and confirm the management HTML
+contains two tab buttons and their corresponding panels.
 
-### [x] Task 7.6 Test buttons
+## Phase 8: Validated multi-service Compose bundles
 
-Click the test button in each app.
+### [x] Task 8.1 Define bundle registry and validation rules
 
-Expected:
+Add a registration mode for a project-local Compose bundle with a Compose file,
+public service, and public internal port. Validate its services, build paths,
+volumes, network settings, and port mappings against FR-012.
 
-```text
-App1 backend responded successfully.
-App2 backend responded successfully.
-App3 backend responded successfully.
-App4 backend responded successfully.
-```
+Verification: unit tests accept a safe multi-service bundle fixture and reject
+host ports, Docker socket mounts, privileged mode, host networking, and paths
+outside the bundle source.
 
-### [x] Task 7.7 Test Launcher status
+### [x] Task 8.2 Generate namespaced bundle services and routes
 
-Click status button or reload Launcher.
+Finish and test the implemented generator: it must prefix every bundle service
+and named volume with `app_id`, rewrite `depends_on` and named-volume
+references, join services to `multiapp_net`, and route only `public_service`
+through Nginx. The generated Compose file must retain a source-local `env_file`
+reference without copying secret values into the registry.
 
-Expected:
+Verification: unit tests inspect generated Compose and Nginx output for a
+bundle fixture. They must find no host ports, find prefixed service and volume
+names, and find the Nginx upstream for the public service.
 
-```text
-running
-stopped
-unknown
-```
+### [x] Task 8.3 Extend bundle lifecycle operations
 
-### [x] Task 7.8 Test Launcher start and stop
+Finish and test the implemented lifecycle mapping. Start, Stop, Restart,
+Rebuild, Logs, and Delete must target every generated service belonging to one
+bundle. Stop and Delete must preserve named data volumes by default.
 
-Use Launcher buttons to:
+Verification: unit tests assert fixed Compose arguments for a bundle and verify
+that Stop and Delete do not include volume deletion.
 
-- stop app1
-- start app1
-- stop app2
-- start app2
-- stop app3
-- start app3
-- stop app4
-- start app4
+### [x] Task 8.4 Add bundle registration controls to Launcher
 
-Confirm status changes.
+Allow the management UI to choose single-service or bundle registration and,
+for bundles, collect only the safe bundle metadata. Never expose secret values
+in the UI or registry.
 
----
+Verification: Launcher compiles and bundle requests are forwarded unchanged to
+the Manager API.
 
-## Phase 8: README
+### [x] Task 8.5 Create the YouTube production bundle definition
 
-### [x] Task 8.1 Create README
+Keep the existing development `docker-compose.yml` unchanged. Add
+`docker-compose.launcher.yml` for Launcher use: no host port mappings, named
+PostgreSQL and Redis volumes, production frontend image, and source-local
+`.env` handling for secrets.
 
-README must include:
+Verification: `docker compose -f apps/0106_YoutubeTranscripter/docker-compose.launcher.yml config --quiet` succeeds with a temporary validation-only OpenAI key.
 
-- Project purpose
-- Architecture summary
-- Folder structure
-- How to start Manager API
-- How to start Docker services
-- How to access Launcher
-- How to access each app
-- How to stop services
-- Security note about Manager API
-- Future extension method
+### [x] Task 8.6 Register and generate the YouTube bundle
 
----
+Register the bundle with `source_directory=apps/0106_YoutubeTranscripter`,
+`compose_file=docker-compose.launcher.yml`, `public_service=frontend`, an
+internal port of `3000`, and a unique public route. Confirm the Manager API
+generates only internal service ports and the Nginx route points to the
+namespaced frontend service.
 
-## Phase 9: Future Improvements
+Verification: inspect `generated/docker-compose.apps.yml` and
+`generated/nginx.conf`; run `docker compose ... config --quiet`.
 
-These tasks are not required in the first PoC.
+### [ ] Task 8.7 Runtime verify the YouTube Transcripter bundle
 
-### [x] Task 9.1 Add Basic authentication to Launcher
+Start the registered bundle, open its Nginx route, and verify the frontend,
+API proxy, worker, and database health. Stop and start it again, then verify
+the PostgreSQL named volume remains present. Do not delete volumes during this
+flow.
 
-### [x] Task 9.2 Add HTTPS
-
-### [x] Task 9.3 Add app4
-
-### [x] Task 9.4 Add logs
-
-### [x] Task 9.5 Add production Nginx configuration
-
-### [x] Task 9.6 Add Linux shell scripts
-
-### [x] Task 9.7 Add GitHub Actions
-
----
-
-## Phase 10: Dynamic Application Management
-
-### [x] Task 10.1 Add persisted application registry and validation
-
-### [x] Task 10.2 Generate Compose and Nginx configuration artifacts
-
-### [x] Task 10.3 Add Manager API CRUD and lifecycle operations
-
-### [x] Task 10.4 Add Launcher management UI and API proxy endpoints
-
-### [ ] Task 10.5 Add tests and update README (README.md is currently a pre-existing deleted file)
-
-### [x] Task 10.6 Verify add, start, stop, delete-preserve, and delete-source flows
-
-### [x] Task 10.7 Verify Nginx recreation after Launcher replacement
-
-### [x] Task 10.8 Add project folder-tree selection for source directories
-
-### [x] Task 10.9 Document application-management operational know-how
-
-### [x] Task 10.10 Refresh Nginx automatically after application route changes
-
-### [x] Task 10.11 Add a Docker image and container learning panel to every app
+Verification: Docker status, Nginx route response, API health through the
+frontend proxy, worker log, and `docker volume inspect` all succeed.

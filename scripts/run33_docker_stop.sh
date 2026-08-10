@@ -12,6 +12,6 @@ test -f "docker-compose.yml" || {                             # Require docker-c
   exit 1                                                      # Exit with error.
 }                                                             # End Compose file check.
 
-docker compose down                                          # Stop and remove Compose containers and network.
+docker compose -f docker-compose.yml -f generated/docker-compose.apps.yml down # Stop and remove base and generated Compose containers and network.
 
 echo "[OK] Docker services were stopped."                      # Show success message.

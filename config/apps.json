@@ -63,5 +63,21 @@
     "description": "",
     "created_at": "2026-08-04T13:22:46.590108+00:00",
     "updated_at": "2026-08-04T13:22:46.590108+00:00"
+  },
+  {
+    "display_name": "YouTube Transcripter",
+    "app_id": "youtube-transcripter",
+    "source_directory": "apps/0106_YoutubeTranscripter",
+    "route_path": "/youtube/",
+    "internal_port": 3000,
+    "health_path": "/",
+    "dockerfile": "",
+    "deployment_type": "bundle",
+    "compose_file": "docker-compose.launcher.yml",
+    "public_service": "frontend",
+    "enabled": true,
+    "description": "Multi-service YouTube transcription bundle",
+    "created_at": "2026-08-09T23:13:18.103869+00:00",
+    "updated_at": "2026-08-09T23:13:18.103869+00:00"
   }
 ]

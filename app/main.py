@@ -3,6 +3,11 @@ from fastapi.responses import HTMLResponse       # Import explicit HTML response
 
 
 # App setup block: create the FastAPI application object once at module load.
+# Module overview:
+# This small FastAPI example separates web endpoints from arithmetic helpers.
+# ``home`` serves a static page, ``health`` reports availability, and ``add``
+# delegates calculation to ``add_numbers`` so that the core logic is easy to
+# test and reuse.
 app = FastAPI(title="Test Function POC")        # Set a readable title for API docs.
 
 
