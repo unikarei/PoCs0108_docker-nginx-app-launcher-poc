@@ -208,6 +208,19 @@ def _bundle_path(source: Path, value: str, label: str) -> Path:
     return candidate
 
 
+def _rewrite_bundle_service_refs(value: Any, names: dict[str, str]) -> Any:
+    """Rewrite URL-style references to source service names after namespacing."""
+    if isinstance(value, str):
+        for original, generated in names.items():
+            value = re.sub(rf"(?<=[/@]){re.escape(original)}(?=[:/])", generated, value)
+        return value
+    if isinstance(value, list):
+        return [_rewrite_bundle_service_refs(item, names) for item in value]
+    if isinstance(value, dict):
+        return {key: _rewrite_bundle_service_refs(item, names) for key, item in value.items()}
+    return value
+
+
 def _validate_bundle_build(source: Path, service_name: str, build: Any) -> None:
     """Ensure each build context and Dockerfile remains within the bundle source."""
     if isinstance(build, str):
@@ -337,6 +350,7 @@ def _bundle_generated_parts(record: dict[str, Any]) -> tuple[dict[str, Any], dic
                 if isinstance(entry, str) and ":" in entry and entry.split(":", 1)[0] in volume_names else entry
                 for entry in service["volumes"]
             ]
+        service = _rewrite_bundle_service_refs(service, names)
         service.pop("ports", None)
         service["networks"] = ["multiapp_net"]
         generated[names[original_name]] = service
@@ -362,7 +376,8 @@ def _generate() -> None:
     for item in records:
         if not item["enabled"]:
             continue
-        if item.get("deployment_type", "single") == "bundle":
+        is_bundle = item.get("deployment_type", "single") == "bundle"
+        if is_bundle:
             bundle_services, bundle_volumes, upstream = _bundle_generated_parts(item)
             services.update(bundle_services)
             volumes.update(bundle_volumes)
@@ -374,7 +389,12 @@ def _generate() -> None:
                 "expose": [str(item["internal_port"])], "networks": ["multiapp_net"],
                 "healthcheck": {"test": ["CMD", "python", "-c", f"import urllib.request; urllib.request.urlopen('http://127.0.0.1:{item['internal_port']}{item['health_path']}', timeout=3)"], "interval": "10s", "timeout": "5s", "retries": 5, "start_period": "5s"},
             }
-        routes.append(f"    location {item['route_path']} {{\n        set $app_upstream {upstream}:{item['internal_port']};\n        proxy_pass http://$app_upstream/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
+        if is_bundle:
+            api_route = f"{item['route_path']}api-proxy/"
+            routes.append(f"    location {api_route} {{\n        set $app_upstream {upstream}:{item['internal_port']};\n        proxy_pass http://$app_upstream;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
+            routes.append(f"    location {item['route_path']} {{\n        set $app_upstream {upstream}:{item['internal_port']};\n        rewrite ^{item['route_path']}(.*)$ /$1 break;\n        proxy_pass http://$app_upstream;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
+        else:
+            routes.append(f"    location {item['route_path']} {{\n        set $app_upstream {upstream}:{item['internal_port']};\n        proxy_pass http://$app_upstream/;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}")
     compose = "# AUTO-GENERATED; DO NOT EDIT.\n" + yaml.safe_dump(
         {"services": services, **({"volumes": volumes} if volumes else {})}, sort_keys=False, allow_unicode=True
     )

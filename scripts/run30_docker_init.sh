@@ -16,6 +16,10 @@ docker --version                                             # Print Docker vers
 docker compose version                                       # Print Docker Compose version.
 docker info >/dev/null                                       # Check whether Docker Engine is running.
 
+if ! docker network inspect youtube_transcripter_net >/dev/null 2>&1; then # Check the shared internal network.
+  docker network create youtube_transcripter_net >/dev/null                 # Create it once when absent.
+fi
+
 [ -f "docker-compose.yml" ] && echo "[OK] docker-compose.yml exists." || echo "[WARN] docker-compose.yml is missing."             # Check Compose file.
 [ -f "nginx/nginx.conf" ] && echo "[OK] nginx/nginx.conf exists." || echo "[WARN] nginx/nginx.conf is missing."                   # Check Nginx config.
 [ -f "launcher/Dockerfile" ] && echo "[OK] launcher Dockerfile exists." || echo "[WARN] launcher Dockerfile is missing."           # Check Launcher Dockerfile.

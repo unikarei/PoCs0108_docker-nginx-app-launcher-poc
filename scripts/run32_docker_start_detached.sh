@@ -7,6 +7,8 @@ echo "=========================================================" # Print title s
 echo "[run32] Start Docker services in background"             # Print script purpose.
 echo "=========================================================" # Print title separator.
 
+"$ROOT/scripts/run25_database_start.sh"                      # Start the separately managed database.
+
 test -f "docker-compose.yml" || {                             # Require docker-compose.yml.
   echo "[ERROR] docker-compose.yml was not found." >&2         # Explain the error.
   exit 1                                                      # Exit with error.

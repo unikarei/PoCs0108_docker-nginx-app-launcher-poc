@@ -9,6 +9,7 @@ echo "[run51] Stop all services"                               # Print script pu
 echo "=========================================================" # Print title separator.
 
 "$SCRIPT_DIR/run33_docker_stop.sh"                            # Stop Docker Compose services.
+"$SCRIPT_DIR/run26_database_stop.sh"                          # Stop the database without removing its volume.
 "$SCRIPT_DIR/run21_manager_stop.sh"                           # Stop host-side Manager API.
 
 echo                                                          # Print blank line.

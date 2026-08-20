@@ -186,6 +186,8 @@ def test_generate_namespaces_bundle_services_volumes_and_public_route(
     assert "depends_on:\n    - bundle-postgres" in compose
     assert "ports:" not in compose
     assert "bundle-frontend:3000" in nginx
+    assert "location /bundle/api-proxy/" in nginx
+    assert "rewrite ^/bundle/(.*)$ /$1 break;" in nginx
 
 
 def test_bundle_lifecycle_targets_all_services_and_preserves_volumes(monkeypatch: pytest.MonkeyPatch) -> None:

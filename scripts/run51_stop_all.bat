@@ -12,6 +12,9 @@ echo ========================================================= & rem Print title
 call "%SCRIPT_DIR%run33_docker_stop.bat"                      & rem Stop Docker Compose services.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker stop fails.
 
+call "%SCRIPT_DIR%run26_database_stop.bat"                    & rem Stop the separately managed database without removing its volume.
+if errorlevel 1 goto :failed                                  & rem Stop when database stop fails.
+
 call "%SCRIPT_DIR%run21_manager_stop.bat"                     & rem Stop host-side Manager API.
 if errorlevel 1 goto :failed                                  & rem Stop when Manager API stop fails.
 

@@ -42,6 +42,7 @@ services:
 
 networks:
   multiapp_net:
-    driver: bridge
+    name: youtube_transcripter_net
+    external: true
 
   # The generated override extends these legacy entries for dynamic installs.

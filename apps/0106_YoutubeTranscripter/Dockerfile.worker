@@ -20,6 +20,9 @@ COPY alembic/ /app/alembic/
 # Copy application code
 COPY backend/ /app/
 
+# Restore the root Alembic configuration after copying backend files.
+COPY alembic.ini /app/alembic.ini
+
 # Create directory for audio files
 RUN mkdir -p /app/audio_files
 

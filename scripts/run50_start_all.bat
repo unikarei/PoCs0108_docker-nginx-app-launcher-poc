@@ -17,6 +17,9 @@ if errorlevel 1 goto :failed                                  & rem Stop when Ma
 
 timeout /t 3 /nobreak >nul                                    & rem Wait a short time for Manager API startup.
 
+call "%SCRIPT_DIR%run25_database_start.bat"                  & rem Start the separately managed database.
+if errorlevel 1 goto :failed                                  & rem Stop when database start fails.
+
 call "%SCRIPT_DIR%run32_docker_start_detached.bat"            & rem Start Docker services in background.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker start fails.
 

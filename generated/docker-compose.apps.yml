@@ -95,16 +95,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
-  youtube-transcripter-postgres:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-youtube_transcription}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    volumes:
-    - youtube-transcripter-postgres_data:/var/lib/postgresql/data
-    networks:
-    - multiapp_net
   youtube-transcripter-redis:
     image: redis:7-alpine
     volumes:
@@ -116,9 +106,7 @@ services:
       context: apps/0106_YoutubeTranscripter/.
       dockerfile: Dockerfile.api
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
-    depends_on:
-    - youtube-transcripter-postgres
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@youtube-db:5432/${POSTGRES_DB:-youtube_transcription}
     command: alembic upgrade head
     networks:
     - multiapp_net
@@ -128,10 +116,11 @@ services:
       dockerfile: Dockerfile.api
     env_file: apps/0106_YoutubeTranscripter/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@youtube-db:5432/${POSTGRES_DB:-youtube_transcription}
+      REDIS_URL: redis://youtube-transcripter-redis:6379/0
+      CELERY_BROKER_URL: redis://youtube-transcripter-redis:6379/0
+      CELERY_RESULT_BACKEND: redis://youtube-transcripter-redis:6379/0
     depends_on:
-    - youtube-transcripter-postgres
     - youtube-transcripter-redis
     - youtube-transcripter-migrate
     networks:
@@ -142,10 +131,11 @@ services:
       dockerfile: Dockerfile.worker
     env_file: apps/0106_YoutubeTranscripter/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-youtube_transcription}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@youtube-db:5432/${POSTGRES_DB:-youtube_transcription}
+      REDIS_URL: redis://youtube-transcripter-redis:6379/0
+      CELERY_BROKER_URL: redis://youtube-transcripter-redis:6379/0
+      CELERY_RESULT_BACKEND: redis://youtube-transcripter-redis:6379/0
     depends_on:
-    - youtube-transcripter-postgres
     - youtube-transcripter-redis
     - youtube-transcripter-migrate
     networks:
@@ -154,12 +144,14 @@ services:
     build:
       context: apps/0106_YoutubeTranscripter/./frontend
       dockerfile: Dockerfile.launcher
+      args:
+        NEXT_PUBLIC_BASE_PATH: /youtube
+        INTERNAL_API_URL: http://youtube-transcripter-api:8000
     environment:
-      INTERNAL_API_URL: http://api:8000
+      INTERNAL_API_URL: http://youtube-transcripter-api:8000
     depends_on:
     - youtube-transcripter-api
     networks:
     - multiapp_net
 volumes:
-  youtube-transcripter-postgres_data: null
   youtube-transcripter-redis_data: null

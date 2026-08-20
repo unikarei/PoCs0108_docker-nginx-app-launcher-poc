@@ -152,6 +152,30 @@ Restart, or Rebuild. Delete removes the generated bundle services but preserves
 named volumes by default. No secret value is stored in the Launcher registry or
 submitted through the browser UI.
 
+For a browser-facing bundle, static assets and browser API calls must remain
+below the registration route prefix, and internal service references must use
+the generated namespaced Compose service names.
+
+For a bundle whose public service is a browser application, the application must
+be aware of its registered route prefix. Its static assets and browser API calls
+must remain below that prefix, and the generated bundle service references must
+use the namespaced Compose service names. This keeps a frontend mounted at a
+route such as `/youtube/` styled and connected to its internal FastAPI service.
+
+### FR-013: External persistent database
+
+The YouTube Transcripter database may be operated by a separate database
+Compose project rather than by the Launcher-generated bundle. The database
+project owns the explicitly named stable volume `youtube-transcripter-db-data`
+and joins the application network using the
+stable service name `youtube-db`. It must not publish a host port. Launcher API,
+worker, and migration services use the same external database URL, and stopping
+or rebuilding the Launcher stack must not remove the database volume.
+
+Database migration must use a dump-and-restore workflow with a verified backup
+and a rollback path. The old database volume remains untouched until the new
+database has passed schema, data, API health, and GUI verification.
+
 ## 4. External interfaces
 
 ### Browser paths

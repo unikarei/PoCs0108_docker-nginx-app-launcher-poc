@@ -11,6 +11,7 @@ echo "=========================================================" # Print title s
 "$SCRIPT_DIR/run30_docker_init.sh"                           # Check Docker and key files.
 "$SCRIPT_DIR/run20_manager_start.sh"                         # Start host-side Manager API.     (Windows)
 sleep 3                                                      # Wait a short time for Manager API startup.
+"$SCRIPT_DIR/run25_database_start.sh"                        # Start the separately managed database.
 "$SCRIPT_DIR/run32_docker_start_detached.sh"                 # Start "Nginx+Launcher+all apps"  (Docker detached mode)
 "$SCRIPT_DIR/run35_docker_status.sh"                         # Show Docker service status.
 

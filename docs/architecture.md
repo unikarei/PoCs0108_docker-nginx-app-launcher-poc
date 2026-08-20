@@ -22,6 +22,15 @@ Nginx container ── Docker network ── Launcher container
 Nginx is the only publicly exposed container. Manager API runs on the host and
 is bound to `127.0.0.1:9000`; it is not routed through Nginx.
 
+Browser bundles are built with their registered public base path (for example,
+`/youtube`). Nginx strips that prefix for the frontend page and static assets,
+but preserves it for the frontend's `/api-proxy/` location so Next.js can apply
+its base-path rewrite. The generated API service URL is supplied both at
+frontend build time and runtime. Single-service apps continue to receive the
+legacy prefix-stripped request. The
+bundle generator also rewrites internal URL hostnames such as `api`, `redis`,
+and `postgres` to their generated `<app_id>-<service>` names.
+
 ## 2. Components
 
 ### 2.1 Nginx
@@ -81,6 +90,24 @@ features such as host networking, privileged mode, Docker socket mounts, or
 paths that escape the bundle source. This preserves the existing security
 boundary: Launcher still communicates only by HTTP and Nginx remains the sole
 host-port publisher.
+
+### 2.6 External persistent database
+
+The YouTube Transcripter PostgreSQL service is operated by
+`database/docker-compose.yml`, independently from the generated application
+Compose file. It owns the stable named volume `youtube-transcripter-db-data`
+and joins the stable Docker network `youtube_transcripter_net` with the alias
+`youtube-db`. PostgreSQL has no host port mapping. The Launcher API, worker, and
+Alembic migration service connect to `youtube-db:5432`.
+
+The database stack is started before the Launcher stack and stopped separately.
+Neither `docker compose down` for the Launcher nor application deletion removes
+the database volume. Backups are created with `pg_dump` before migration and
+before any destructive maintenance operation. The supported operations are
+`run25_database_start`, `run26_database_stop`, `run27_database_status`,
+`run28_database_backup`, and the confirmation-gated `run29_database_restore`
+scripts. The Compose volume name is explicitly fixed as
+`youtube-transcripter-db-data`, independent of the Compose project name.
 
 ## 3. Registry and generation flow
 

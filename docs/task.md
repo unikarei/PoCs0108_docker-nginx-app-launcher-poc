@@ -285,12 +285,43 @@ namespaced frontend service.
 Verification: inspect `generated/docker-compose.apps.yml` and
 `generated/nginx.conf`; run `docker compose ... config --quiet`.
 
-### [ ] Task 8.7 Runtime verify the YouTube Transcripter bundle
+### [x] Task 8.7 Runtime verify the YouTube Transcripter bundle
 
 Start the registered bundle, open its Nginx route, and verify the frontend,
 API proxy, worker, and database health. Stop and start it again, then verify
 the PostgreSQL named volume remains present. Do not delete volumes during this
 flow.
 
+The frontend must be built for `/youtube/`, load its CSS/JavaScript assets below
+that route, and send API requests through the routed frontend proxy to the
+namespaced FastAPI service.
+
 Verification: Docker status, Nginx route response, API health through the
 frontend proxy, worker log, and `docker volume inspect` all succeed.
+
+## Phase 9: External persistent YouTube database
+
+### [x] Task 9.1 Define the external database boundary
+
+Add the external database requirement and stable network/volume contract to the
+SDD. Keep PostgreSQL out of the generated Launcher bundle and do not publish a
+database host port.
+
+### [x] Task 9.2 Create the database Compose project and operations
+
+Create `database/docker-compose.yml` plus safe start, stop, status, backup, and
+restore operations. Stop must preserve the explicitly named database volume.
+Backup writes PostgreSQL custom-format files without host-side text encoding,
+and restore requires explicit confirmation.
+
+### [x] Task 9.3 Migrate the YouTube database safely
+
+Dump the old database and current database, restore the selected old dump into
+the external database, run migrations, and retain both source backups and the
+old volume for rollback.
+
+### [x] Task 9.4 Switch and verify Launcher database connectivity
+
+Point API, worker, and migration services at `youtube-db`, then verify existing
+transcripts through the frontend, API health, worker health, backup restore
+metadata, and persistence across Launcher stop/start.

@@ -16,6 +16,10 @@ docker compose version                                        & rem Print Docker
 docker info >nul 2>nul                                        & rem Check whether Docker Engine is running.
 if errorlevel 1 goto :docker_not_running                      & rem Stop when Docker Engine is not running.
 
+docker network inspect youtube_transcripter_net >nul 2>nul     & rem Check the shared internal network.
+if errorlevel 1 docker network create youtube_transcripter_net >nul 2>nul & rem Create it once when absent.
+if errorlevel 1 goto :network_create_failed                   & rem Stop when network creation fails.
+
 if exist "docker-compose.yml" echo [OK] docker-compose.yml exists.          & rem Check Compose file.
 if not exist "docker-compose.yml" echo [WARN] docker-compose.yml is missing. & rem Warn when Compose file is missing.
 if exist "nginx\nginx.conf" echo [OK] nginx\nginx.conf exists.              & rem Check Nginx config.
@@ -41,6 +45,11 @@ rem ---------------------------------------------------------  & rem Error branc
 :docker_missing
 echo [ERROR] docker command was not found.                     & rem Explain the error.
 echo Install or start Docker Desktop first.                    & rem Show next action.
+exit /b 1                                                     & rem Exit with error.
+
+rem ---------------------------------------------------------  & rem Error branch for shared network creation.
+:network_create_failed
+echo [ERROR] Could not create youtube_transcripter_net.         & rem Explain the error.
 exit /b 1                                                     & rem Exit with error.
 
 rem ---------------------------------------------------------  & rem Error branch for stopped Docker Engine.

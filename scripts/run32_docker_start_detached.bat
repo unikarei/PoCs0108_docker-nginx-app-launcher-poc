@@ -8,6 +8,9 @@ echo ========================================================= & rem Print title
 echo [run32] Start Docker services in background               & rem Print script purpose.
 echo ========================================================= & rem Print title separator.
 
+call "%~dp0run25_database_start.bat"                         & rem Start the separately managed database.
+if errorlevel 1 goto :failed                                  & rem Stop when database start fails.
+
 if not exist "docker-compose.yml" goto :missing_compose       & rem Require docker-compose.yml.
 
 docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up --build -d & rem Build and start services.
