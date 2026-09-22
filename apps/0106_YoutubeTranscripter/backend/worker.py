@@ -14,8 +14,12 @@ from services.audio_preprocessor import AudioPreprocessor
 from services.transcription_service import TranscriptionService
 from services.correction_service import CorrectionService
 from services.qa_service import QaService
+from services.key_points_service import KeyPointsService
 from services.job_manager import JobManager
 from services.transcript_merger import merge_transcripts
+from services.youtube_transcript_service import YouTubeTranscriptResult, retrieve_youtube_transcript
+from services.rich_text import to_plain_text
+from services.job_title import build_default_job_title
 
 load_dotenv()
 
@@ -42,6 +46,41 @@ def _should_stop_for_cancellation(job_manager: JobManager, job_id: str) -> bool:
     return True
 
 
+def _complete_transcription_failure(youtube_result: YouTubeTranscriptResult, audio_error: str) -> str:
+    """Combine a YouTube lookup outcome with the final audio fallback error."""
+    if youtube_result.status == "error":
+        return f"YouTube transcript retrieval failed and audio transcription also failed: {audio_error}"
+    return f"No usable YouTube-provided transcript was available; audio transcription also failed: {audio_error}"
+
+
+def _queue_automatic_proofread(job_id: str, proofread_model: str) -> None:
+    """Queue proofreading after Transcript has produced its effective text."""
+    job_manager = JobManager()
+    job_manager.update_job_progress(job_id, 100)
+    job_manager.update_job_status(
+        job_id,
+        "correcting",
+        stage="proofread",
+        stage_detail={"status": "queued", "model": proofread_model},
+    )
+    proofread_task.delay(job_id, proofread_model)
+
+
+def _set_default_title_if_needed(
+    job_manager: JobManager,
+    job_id: str,
+    metadata: dict,
+    created_at,
+) -> None:
+    """Persist the generated title without replacing a user title."""
+    current_job = job_manager.get_job(job_id)
+    if current_job and not current_job.user_title:
+        job_manager.update_job_title(
+            job_id,
+            build_default_job_title(metadata, created_at),
+        )
+
+
 @celery_app.task(
     bind=True,
     name="worker.transcription_task",
@@ -52,12 +91,13 @@ def _should_stop_for_cancellation(job_manager: JobManager, job_id: str) -> bool:
     retry_backoff_max=600,
     retry_jitter=True,
 )
-def transcription_task(self, job_id: str):
+def transcription_task(self, job_id: str, proofread_model: str = "gpt-4o-mini"):
     """
     Background task for transcribing YouTube audio
     
     Args:
         job_id: Unique job identifier
+        proofread_model: LLM model for the automatic proofreading step
     
     Returns:
         dict: Result containing job_id and status
@@ -74,12 +114,63 @@ def transcription_task(self, job_id: str):
             logger.error(f"Job {job_id} not found")
             return {"job_id": job_id, "status": "failed", "error": "Job not found"}
 
+        # Fetch metadata once so subtitle-only jobs can also receive a useful
+        # Library title without downloading audio.
+        video_metadata = AudioExtractor().get_video_info(job.youtube_url) or {}
+
         if _should_stop_for_cancellation(job_manager, job_id):
             return {"job_id": job_id, "status": "canceled"}
         
-        # Update status to processing
-        job_manager.update_job_status(job_id, "processing", stage="download_extract")
+        # Check YouTube-provided subtitles before downloading any audio.
+        job_manager.update_job_status(
+            job_id,
+            "processing",
+            stage="youtube_transcript",
+            stage_detail={"status": "checking"},
+        )
         job_manager.update_job_progress(job_id, 5)
+
+        youtube_result = retrieve_youtube_transcript(job.youtube_url, job.language)
+        job_manager.save_youtube_transcript_result(job_id, youtube_result)
+
+        if youtube_result.usable:
+            logger.info("Using YouTube transcript for job %s; skipping audio/STT", job_id)
+            job_manager.update_job_progress(job_id, 92)
+            job_manager.update_job_status(
+                job_id,
+                "processing",
+                stage="export",
+                stage_detail={"source": "youtube", "language_code": youtube_result.language_code},
+            )
+            job_manager.save_job_result(
+                job_id=job_id,
+                transcript=youtube_result.text or "",
+                metadata={
+                    "language_detected": youtube_result.language_code,
+                    "model": "youtube-transcript",
+                    "source": "youtube",
+                    "segments": youtube_result.segments,
+                },
+            )
+            _set_default_title_if_needed(job_manager, job_id, video_metadata, job.created_at)
+            job_manager.update_job_progress(job_id, 100)
+            job_manager.update_job_status(
+                job_id,
+                "correcting",
+                stage="export",
+                stage_detail={"source": "youtube", "segment_count": len(youtube_result.segments)},
+            )
+            _queue_automatic_proofread(job_id, proofread_model)
+            return {"job_id": job_id, "status": "correcting", "transcript_source": "youtube"}
+
+        logger.info(
+            "No usable YouTube transcript for job %s (%s); continuing with audio fallback",
+            job_id,
+            youtube_result.status,
+        )
+
+        # Existing audio path remains the fallback when YouTube subtitles are unavailable.
+        job_manager.update_job_status(job_id, "processing", stage="download_extract")
         
         # Step 1: Extract audio from YouTube
         logger.info(f"Extracting audio for job {job_id}")
@@ -95,8 +186,9 @@ def transcription_task(self, job_id: str):
         
         if not extraction_result.success:
             logger.error(f"Audio extraction failed for job {job_id}: {extraction_result.error}")
-            job_manager.update_job_status(job_id, "failed", extraction_result.error)
-            return {"job_id": job_id, "status": "failed", "error": extraction_result.error}
+            error = _complete_transcription_failure(youtube_result, extraction_result.error or "Audio extraction failed")
+            job_manager.update_job_status(job_id, "failed", error)
+            return {"job_id": job_id, "status": "failed", "error": error}
         
         # Save audio file info
         if _should_stop_for_cancellation(job_manager, job_id):
@@ -131,8 +223,9 @@ def transcription_task(self, job_id: str):
         if not preprocess_result.success or not preprocess_result.plan:
             err = preprocess_result.error or "Audio preprocess failed"
             logger.error(f"Audio preprocess failed for job {job_id}: {err}")
-            job_manager.update_job_status(job_id, "failed", err, stage="preprocess")
-            return {"job_id": job_id, "status": "failed", "error": err}
+            error = _complete_transcription_failure(youtube_result, err)
+            job_manager.update_job_status(job_id, "failed", error, stage="preprocess")
+            return {"job_id": job_id, "status": "failed", "error": error}
 
         chunks = preprocess_result.plan.chunks
         job_manager.update_job_progress(job_id, 45)
@@ -183,8 +276,9 @@ def transcription_task(self, job_id: str):
                 err = transcription_result.error or "Transcription failed"
                 detailed = f"Chunk {i + 1}/{len(chunks)} failed: {err}"
                 logger.error(f"Transcription failed for job {job_id}: {detailed}")
-                job_manager.update_job_status(job_id, "failed", detailed, stage="transcribe")
-                return {"job_id": job_id, "status": "failed", "error": detailed}
+                error = _complete_transcription_failure(youtube_result, detailed)
+                job_manager.update_job_status(job_id, "failed", error, stage="transcribe")
+                return {"job_id": job_id, "status": "failed", "error": error}
 
             if detected_language is None and transcription_result.language_detected:
                 detected_language = transcription_result.language_detected
@@ -217,23 +311,21 @@ def transcription_task(self, job_id: str):
             metadata={
                 "language_detected": detected_language,
                 "model": job.model,
+                "source": "audio",
                 "segments": merged.segments,
             },
         )
+
+        _set_default_title_if_needed(job_manager, job_id, video_metadata, job.created_at)
 
         if _should_stop_for_cancellation(job_manager, job_id):
             return {"job_id": job_id, "status": "canceled"}
 
         job_manager.update_job_progress(job_id, 100)
-        job_manager.update_job_status(
-            job_id,
-            "completed",
-            stage="export",
-            stage_detail={"chunk_count": len(chunks)},
-        )
+        _queue_automatic_proofread(job_id, proofread_model)
 
         logger.info(f"Transcription task completed for job {job_id}")
-        return {"job_id": job_id, "status": "completed", "transcript_length": len(merged.text)}
+        return {"job_id": job_id, "status": "correcting", "transcript_length": len(merged.text)}
         
     except Exception as exc:
         if job_manager.is_job_canceled(job_id):
@@ -297,7 +389,7 @@ def correction_task(self, job_id: str, correction_model: str = "gpt-4o-mini"):
         correction_service = CorrectionService()
         
         correction_result = correction_service.correct_transcript(
-            transcript=job.transcript.text,
+            transcript=to_plain_text(job.transcript.text),
             language=job.language,
             model=correction_model
         )
@@ -311,7 +403,7 @@ def correction_task(self, job_id: str, correction_model: str = "gpt-4o-mini"):
         job_manager.upsert_corrected_transcript(
             job_id=job_id,
             corrected_text=correction_result.corrected_text,
-            original_text=job.transcript.text,
+            original_text=to_plain_text(job.transcript.text),
             correction_model=correction_model,
             changes_summary=correction_result.changes_summary,
         )
@@ -369,7 +461,7 @@ def proofread_task(self, job_id: str, model: str = "gpt-4o-mini"):
 
         correction_service = CorrectionService()
         correction_result = correction_service.correct_transcript(
-            transcript=job.transcript.text,
+            transcript=to_plain_text(job.transcript.text),
             language=job.language,
             model=model,
         )
@@ -382,7 +474,7 @@ def proofread_task(self, job_id: str, model: str = "gpt-4o-mini"):
         job_manager.upsert_corrected_transcript(
             job_id=job_id,
             corrected_text=correction_result.corrected_text,
-            original_text=job.transcript.text,
+            original_text=to_plain_text(job.transcript.text),
             correction_model=model,
             changes_summary=correction_result.changes_summary,
         )
@@ -398,6 +490,61 @@ def proofread_task(self, job_id: str, model: str = "gpt-4o-mini"):
         job_manager.update_job_status(job_id, "failed", str(exc))
         raise self.retry(exc=exc)
 
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    bind=True,
+    name="worker.key_points_task",
+    max_retries=3,
+    default_retry_delay=60,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+)
+def key_points_task(self, job_id: str, model: str = "gpt-4o-mini", prompt: str = ""):
+    """Generate and persist detailed key points without changing the transcript."""
+    logger.info("Starting key-point extraction for job %s", job_id)
+
+    db = SessionLocal()
+    job_manager = JobManager()
+
+    try:
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            return {"job_id": job_id, "status": "failed", "error": "Job not found"}
+        if not job.transcript:
+            error_message = "No transcript available for key-point extraction"
+            job_manager.upsert_key_points_summary(job_id, prompt, model, "error", error_message=error_message)
+            return {"job_id": job_id, "status": "failed", "error": error_message}
+
+        job_manager.update_job_status(job_id, "correcting")
+        service = KeyPointsService()
+        result = service.extract(to_plain_text(job.transcript.text), prompt, model)
+        if not result.success:
+            error_message = result.error or "Key-point extraction failed"
+            job_manager.upsert_key_points_summary(job_id, prompt, model, "error", error_message=error_message)
+            job_manager.update_job_status(job_id, "completed")
+            return {"job_id": job_id, "status": "failed", "error": error_message}
+
+        job_manager.upsert_key_points_summary(
+            job_id=job_id,
+            prompt=prompt,
+            model=model,
+            status="completed",
+            key_points_text=result.text,
+        )
+        job_manager.update_job_progress(job_id, 100)
+        job_manager.update_job_status(job_id, "completed")
+        logger.info("Key-point extraction completed for job %s", job_id)
+        return {"job_id": job_id, "status": "completed"}
+    except Exception as exc:
+        logger.error("Key-point extraction task failed for %s: %s", job_id, exc, exc_info=True)
+        job_manager.upsert_key_points_summary(job_id, prompt, model, "error", error_message=str(exc))
+        job_manager.update_job_status(job_id, "completed")
+        raise self.retry(exc=exc)
     finally:
         db.close()
 
@@ -429,7 +576,11 @@ def qa_task(self, job_id: str, question: str, model: str = "gpt-4o-mini"):
             logger.error(f"No transcript found for job {job_id}")
             return {"job_id": job_id, "status": "failed", "error": "No transcript available"}
 
-        base_text = job.corrected_transcript.corrected_text if job.corrected_transcript else job.transcript.text
+        base_text = (
+            to_plain_text(job.corrected_transcript.corrected_text)
+            if job.corrected_transcript
+            else to_plain_text(job.transcript.text)
+        )
 
         qa_service = QaService()
         qa_result = qa_service.answer_question(transcript_text=base_text, question=question, model=model)

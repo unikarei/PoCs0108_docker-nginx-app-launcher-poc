@@ -141,8 +141,8 @@ export default function SettingsTab({ settings, onChange }: Props) {
             <label className="flex items-center space-x-2 text-sm text-gray-700">
               <input
                 type="checkbox"
-                checked={settings.proofreadEnabled}
-                onChange={(e) => set({ proofreadEnabled: e.target.checked })}
+                checked={true}
+                disabled
               />
               <span>Proofread を投入時に有効化</span>
             </label>
@@ -153,10 +153,10 @@ export default function SettingsTab({ settings, onChange }: Props) {
                 value={settings.proofreadModel}
                 onChange={(e) => set({ proofreadModel: e.target.value as AppSettings['proofreadModel'] })}
                 className="input-field"
-                disabled={!settings.proofreadEnabled}
               >
                 <option value="gpt-4o-mini">GPT-4o Mini</option>
                 <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-5-mini">GPT-5 Mini</option>
               </select>
             </div>
           </div>
@@ -181,6 +181,7 @@ export default function SettingsTab({ settings, onChange }: Props) {
               >
                 <option value="gpt-4o-mini">GPT-4o Mini</option>
                 <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-5-mini">GPT-5 Mini</option>
               </select>
             </div>
           </div>

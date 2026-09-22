@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
+from services.rich_text import to_plain_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +46,7 @@ class ExportService:
         if not transcript:
             return ""
         
-        # Plain text - just return as-is
+        transcript = to_plain_text(transcript)
         logger.info("Exported transcript to TXT format")
         return transcript
     
@@ -66,6 +68,13 @@ class ExportService:
         """
         if not transcript:
             return ""
+
+        transcript = to_plain_text(transcript)
+        if segments:
+            segments = [
+                {**segment, 'text': to_plain_text(segment.get('text'))}
+                for segment in segments
+            ]
         
         # Prefer timestamped segments when provided
         if segments:
@@ -112,6 +121,13 @@ class ExportService:
         """
         if not transcript:
             return "WEBVTT\n\n"
+
+        transcript = to_plain_text(transcript)
+        if segments:
+            segments = [
+                {**segment, 'text': to_plain_text(segment.get('text'))}
+                for segment in segments
+            ]
         
         # Prefer timestamped segments when provided
         if segments:

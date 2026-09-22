@@ -39,13 +39,23 @@ from routers.schemas import (
     BulkDeleteJobsResponse,
     UpdateTitleRequest,
     UpdateTitleResponse,
+    YouTubeTranscriptInfo,
+    KeyPointsRequest,
+    KeyPointsResponse,
+    UpdateResultContentRequest,
+    UpdateResultContentResponse,
 )
 from services.job_manager import JobManager
 from services.playlist_expander import (
     expand_playlist_or_channel as expand_playlist_or_channel_service,
     validate_youtube_url,
 )
-from worker import celery_app, transcription_task, correction_task, proofread_task, qa_task
+from worker import celery_app, transcription_task, correction_task, proofread_task, key_points_task, qa_task
+from services.key_points_service import DEFAULT_KEY_POINTS_PROMPT
+from services.result_content import (
+    ResultContentNotFound,
+    update_result_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +64,20 @@ router = APIRouter()
 
 _DELETABLE_STATUSES = {"pending", "completed", "failed"}
 _CANCELABLE_STATUSES = {"pending", "processing", "transcribing"}
+
+
+class WorkerUnavailableError(RuntimeError):
+    """Raised when no Celery worker responds before a job is queued."""
+
+
+def _require_active_worker() -> int:
+    """Return active worker count or fail before creating a silently stuck job."""
+    inspector = celery_app.control.inspect(timeout=1)
+    workers = inspector.ping() if inspector else None
+    count = len(workers or {})
+    if count == 0:
+        raise WorkerUnavailableError("No active Celery worker responded")
+    return count
 
 
 def _safe_remove_path(path: Path) -> None:
@@ -323,7 +347,22 @@ async def create_transcription_job(
         # If queue publish fails, mark the job as failed so it does not remain
         # stuck in pending state without any worker actually processing it.
         try:
-            transcription_task.apply_async(args=[job.id], task_id=job.id)
+            worker_count = _require_active_worker()
+            logger.info("Celery worker preflight passed: workers=%s", worker_count)
+            transcription_task.apply_async(
+                args=[job.id, request.proofread_model],
+                task_id=job.id,
+            )
+        except WorkerUnavailableError as e:
+            msg = (
+                "Celery worker is not running. Start the YouTube worker and retry."
+            )
+            logger.error(f"Failed to enqueue job {job.id}: {e}")
+            job_manager.update_job_status(job.id, "failed", msg)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=msg,
+            )
         except KombuOperationalError as e:
             msg = (
                 "Task queue unavailable. Start Redis and Celery worker, then retry."
@@ -548,13 +587,42 @@ async def get_job_result(
                 "format": job.audio_file.format,
                 "file_size_bytes": job.audio_file.file_size_bytes
             }
-        
+
+        if job.youtube_transcript:
+            youtube_record = job.youtube_transcript
+            try:
+                available_tracks = json.loads(youtube_record.available_tracks_json or "[]")
+            except (TypeError, ValueError):
+                available_tracks = []
+            try:
+                youtube_segments = json.loads(youtube_record.segments_json or "[]")
+            except (TypeError, ValueError):
+                youtube_segments = []
+            response.youtube_transcript = YouTubeTranscriptInfo(
+                status=youtube_record.status,
+                video_id=youtube_record.video_id,
+                text=youtube_record.text,
+                language_code=youtube_record.language_code,
+                language_name=youtube_record.language_name,
+                is_generated=youtube_record.is_generated,
+                available_tracks=available_tracks,
+                segments=youtube_segments,
+                error_message=youtube_record.error_message,
+                created_at=youtube_record.created_at,
+            )
+
         # Add transcript if available
         if job.transcript:
+            try:
+                transcript_segments = json.loads(job.transcript.segments_json or "[]")
+            except (TypeError, ValueError):
+                transcript_segments = None
             response.transcript = {
                 "text": job.transcript.text,
                 "language_detected": job.transcript.language_detected,
                 "transcription_model": job.transcript.transcription_model,
+                "source": getattr(job.transcript, "source", "audio"),
+                "segments": transcript_segments,
                 "created_at": job.transcript.created_at
             }
         
@@ -568,9 +636,20 @@ async def get_job_result(
                 "created_at": job.corrected_transcript.created_at
             }
 
+        if job.key_points_summary:
+            response.key_points_summary = {
+                "status": job.key_points_summary.status,
+                "key_points_text": job.key_points_summary.key_points_text,
+                "key_points_model": job.key_points_summary.key_points_model,
+                "prompt": job.key_points_summary.prompt,
+                "error_message": job.key_points_summary.error_message,
+                "created_at": job.key_points_summary.created_at,
+            }
+
         if job.qa_results:
             response.qa_results = [
                 {
+                    "id": qa.id,
                     "question": qa.question,
                     "answer": qa.answer,
                     "qa_model": qa.qa_model,
@@ -589,6 +668,38 @@ async def get_job_result(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve job result"
         )
+
+
+@router.patch("/{job_id}/content", response_model=UpdateResultContentResponse)
+async def update_result_content_endpoint(
+    job_id: str,
+    request: UpdateResultContentRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Update one allow-listed textual result field for the selected job."""
+    job = JobManager(db).get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    try:
+        update_result_content(
+            db=db,
+            job=job,
+            content_type=request.content_type,
+            content=request.content,
+            qa_id=request.qa_id,
+        )
+    except ResultContentNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    return UpdateResultContentResponse(
+        job_id=job_id,
+        content_type=request.content_type,
+        content=request.content,
+        qa_id=request.qa_id,
+    )
 
 
 @router.patch("/{job_id}/title", response_model=UpdateTitleResponse)
@@ -757,6 +868,62 @@ async def proofread_transcript(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to start proofread task"
         )
+
+
+@router.post("/{job_id}/key-points", response_model=KeyPointsResponse)
+async def extract_key_points(
+    job_id: str,
+    request: KeyPointsRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Queue detailed key-point extraction from the effective transcript."""
+    try:
+        job_manager = JobManager(db)
+        job = job_manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+        if job.status not in ["completed", "correcting"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transcription not complete. Current status: {job.status}",
+            )
+        if not job.transcript:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No transcript available for key-point extraction")
+
+        prompt = request.prompt.strip() or DEFAULT_KEY_POINTS_PROMPT
+        job_manager.upsert_key_points_summary(
+            job_id=job_id,
+            prompt=prompt,
+            model=request.key_points_model,
+            status="pending",
+            key_points_text=None,
+            error_message=None,
+        )
+        try:
+            key_points_task.delay(job_id, request.key_points_model, prompt)
+        except Exception as exc:
+            error_message = "Failed to enqueue key-point extraction task"
+            logger.error("Failed to enqueue key-point task for %s: %s", job_id, exc, exc_info=True)
+            job_manager.upsert_key_points_summary(
+                job_id=job_id,
+                prompt=prompt,
+                model=request.key_points_model,
+                status="error",
+                error_message=error_message,
+            )
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=error_message)
+
+        return KeyPointsResponse(
+            job_id=job_id,
+            status="pending",
+            message="Key-point extraction task started successfully",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to start key-point extraction: %s", exc, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to start key-point extraction task")
 
 
 @router.post("/{job_id}/qa", response_model=QaResponse)

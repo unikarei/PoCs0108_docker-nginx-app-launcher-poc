@@ -325,3 +325,187 @@ old volume for rollback.
 Point API, worker, and migration services at `youtube-db`, then verify existing
 transcripts through the frontend, API health, worker health, backup restore
 metadata, and persistence across Launcher stop/start.
+
+## Phase 10: Celery worker availability
+
+### [x] Task 10.1 Guarantee worker startup and recovery
+
+Route the worker to both application queues, add automatic restart and a Celery
+ping healthcheck, and make the all-services startup script fail clearly when
+the worker does not become healthy.
+
+### [x] Task 10.2 Prevent silent pending jobs
+
+Check for an active Celery worker before publishing a transcription task. If no
+worker responds, return HTTP 503, record an actionable failed job, and require
+the user to retry after worker recovery.
+
+Verification: generated Compose contains the worker command, restart policy,
+and healthcheck; the routed API health reports worker count; Compose config is
+valid; and the updated Python module compiles.
+
+## Phase 11: Current proofreading and QA models
+
+### [ ] Task 11.1 Add GPT-5 mini to proofreading and QA
+
+Add `gpt-5-mini` to backend validation and the Settings/Results selectors for
+proofreading and QA only. Preserve `gpt-4o-mini` as the default and omit
+unsupported sampling parameters for GPT-5 mini.
+
+Verification: compile the changed Python modules and run the frontend build.
+
+## Phase 12: Two-stage YouTube transcript retrieval
+
+### [ ] Task 12.1 Define the YouTube transcript data contract
+
+Add SDD-backed storage for YouTube transcript retrieval status, selected track
+metadata, available tracks, timestamps, and the source of the effective
+transcript. Add the `youtube-transcript-api` dependency and an Alembic
+migration without changing existing transcript consumers.
+
+### [ ] Task 12.2 Implement YouTube-first worker flow
+
+Extract a video ID, prefer manual tracks over auto-generated tracks, select a
+language deterministically, and retrieve the transcript before audio
+extraction. Skip audio/STT when retrieval succeeds; otherwise record
+unavailable/error and run the existing audio fallback. Preserve clear final
+errors when both paths fail.
+
+### [ ] Task 12.3 Add result and Batch UI subtitle information
+
+Expose the retrieval result through the job result API and show subtitle
+availability/selection metadata in the Batch result preview. Add a
+`YouTube Transcript` Results tab immediately before the existing `Transcript`
+tab, while preserving export, correction, proofreading, QA, and note behavior.
+
+### [ ] Task 12.4 Test the two-stage flow
+
+Add mocked tests for manual, auto-generated, unavailable, retrieval-error,
+YouTube-success-without-STT, both-methods-fail, effective-transcript
+selection, API serialization, and Results tab ordering. Run the backend tests,
+frontend type check, and frontend production build where the environment
+permits.
+
+## Phase 13: Detailed key-point extraction
+
+### [x] Task 13.1 Define key-point extraction contract
+
+Add the SDD requirement, default detailed Japanese prompt, API request/result
+shape, and one-to-one database storage for the selected model, edited prompt,
+result text, and timestamp. Preserve existing transcript and proofreading
+records.
+
+### [x] Task 13.2 Implement asynchronous extraction
+
+Add model validation, a dedicated OpenAI extraction service, a Celery task, and
+the controlled `POST /api/jobs/{job_id}/key-points` endpoint. Read the
+effective Transcript as input, support `gpt-4o-mini`, `gpt-4o`, and
+`gpt-5-mini`, and omit unsupported temperature options for `gpt-5-mini`.
+
+### [x] Task 13.3 Add the Key Points Results tab
+
+Place `Key Points` immediately to the right of `Proofread`. Provide an LLM
+selector, execution button, prompt editor button, saved-result display, and
+polling behavior consistent with Proofread. The prompt editor starts with the
+specified detailed prompt.
+
+### [x] Task 13.4 Verify extraction behavior
+
+Add mocked tests for request validation, prompt editing, model forwarding,
+effective-transcript input, GPT-5 mini request options, result persistence,
+failure preservation, API serialization, and tab ordering. Run backend tests,
+frontend type checking, and the production build where the environment
+permits.
+
+## Phase 14: Failed-job Re-run
+
+### [x] Task 14.1 Fix routed Re-run submission
+
+Prevent Next.js trailing-slash redirects from rewriting API POST requests,
+show a busy state while Re-run is submitted, and switch Results to the newly
+created job. Verify the routed POST reaches the API without redirect and that
+the frontend production build succeeds.
+
+## Phase 15: Editable and highlighted Results tabs
+
+### [ ] Task 15.1 Add the result-content editing contract
+
+Document the supported result content types, controlled update request, Q&A
+identifier requirement, and preservation of existing formatting markers.
+
+### [ ] Task 15.2 Implement persisted result editing
+
+Add the validated result-content update endpoint, shared safe markup helpers,
+and removal of formatting markers from transcript export and LLM/QA input.
+
+### [ ] Task 15.3 Make every Results text area inline-editable
+
+Use a shared `contenteditable` editor for YouTube Transcript, Transcript,
+Proofread, Key Points, Q&A, and Note. Support insertion, deletion, bold, and
+yellow highlighting in place, with explicit save state and refresh-safe
+serialization.
+
+### [ ] Task 15.4 Verify result editing
+
+Test content-type validation, persistence for each supported target, Q&A ID
+handling, markup safety, export/LLM plain-text behavior, and the frontend
+production build.
+
+## Phase 16: Selective all-services startup
+
+### [ ] Task 16.1 Add startup option contract
+
+Document backward-compatible full startup, `--quick`, individual skip options,
+and the database handoff between `run50` and `run32`.
+
+### [ ] Task 16.2 Implement selective startup for Windows and POSIX
+
+Add argument parsing to `run50_start_all.{bat,sh}` and
+`run32_docker_start_detached.{bat,sh}`. Avoid duplicate database startup and
+allow an already-built environment to start without rebuilding images.
+
+### [ ] Task 16.3 Verify startup options
+
+Check help and argument behavior on both script variants, preserve no-argument
+behavior, and run the repository's script/config checks where Docker is
+available.
+
+## Phase 17: Library navigation and automatic proofreading
+
+### [x] Task 17.1 Preserve the last selected Library folder
+
+Keep the selected Library folder in page-level navigation state and restore it
+when returning from an opened item in Results. Fall back to the first available
+folder only when the previous folder was deleted.
+
+### [x] Task 17.2 Run Proofread automatically after Transcript
+
+Accept the proofreading model with a transcription request, enqueue Proofread
+after a successful Transcript task, and make the corrected result available
+without a separate Proofread action. Remove the Results Proofread tab and show
+the corrected text from the Transcript tab when it is ready.
+
+### [x] Task 17.3 Verify navigation and automatic Proofread
+
+Run focused backend tests for request forwarding and automatic task chaining,
+frontend assertions for folder restoration and tab removal, and the frontend
+production build.
+
+## Phase 18: Library ordering and default titles
+
+### [x] Task 18.1 Fix Library folder ordering
+
+Return folder trees with `Inbox` first among siblings and all other folders in
+a stable normalized name/path order.
+
+### [x] Task 18.2 Generate default YouTube titles
+
+Read uploader/channel metadata during Transcript processing and, when the user
+did not provide a title, persist `【配信者名】YouTube YYYY/M/D` on the Job and
+Library Item. Preserve explicit user titles and use `YouTube` as the metadata
+fallback name.
+
+### [x] Task 18.3 Verify ordering and title behavior
+
+Run focused backend tests for folder ordering and title generation, build the
+frontend, and verify the running API/frontend health endpoints.

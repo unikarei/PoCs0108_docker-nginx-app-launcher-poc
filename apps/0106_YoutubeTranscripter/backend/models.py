@@ -44,7 +44,9 @@ class Job(Base):
     # Relationships
     audio_file = relationship("AudioFile", back_populates="job", uselist=False, cascade="all, delete-orphan")
     transcript = relationship("Transcript", back_populates="job", uselist=False, cascade="all, delete-orphan")
+    youtube_transcript = relationship("YoutubeTranscript", back_populates="job", uselist=False, cascade="all, delete-orphan")
     corrected_transcript = relationship("CorrectedTranscript", back_populates="job", uselist=False, cascade="all, delete-orphan")
+    key_points_summary = relationship("KeyPointsSummary", back_populates="job", uselist=False, cascade="all, delete-orphan")
     qa_results = relationship("QaResult", back_populates="job", cascade="all, delete-orphan")
     note = relationship("JobNote", back_populates="job", uselist=False, cascade="all, delete-orphan")
 
@@ -98,6 +100,7 @@ class Transcript(Base):
     text = Column(Text, nullable=False)
     language_detected = Column(String(10), nullable=True)
     transcription_model = Column(String(50), nullable=True)
+    source = Column(String(20), nullable=False, default="audio", server_default="audio")
     # JSON string for timestamped segments (for SRT/VTT). Optional for backward compatibility.
     segments_json = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -108,6 +111,31 @@ class Transcript(Base):
     # Indexes
     __table_args__ = (
         Index("ix_transcripts_job_id", "job_id"),
+    )
+
+
+class YoutubeTranscript(Base):
+    """Persist the direct YouTube transcript lookup and its track metadata."""
+
+    __tablename__ = "youtube_transcripts"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, unique=True)
+    status = Column(String(20), nullable=False)
+    video_id = Column(String(20), nullable=True)
+    text = Column(Text, nullable=True)
+    language_code = Column(String(20), nullable=True)
+    language_name = Column(String(100), nullable=True)
+    is_generated = Column(Boolean, nullable=True)
+    available_tracks_json = Column(Text, nullable=True)
+    segments_json = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    job = relationship("Job", back_populates="youtube_transcript")
+
+    __table_args__ = (
+        Index("ix_youtube_transcripts_job_id", "job_id"),
     )
 
 
@@ -131,6 +159,28 @@ class CorrectedTranscript(Base):
     # Indexes
     __table_args__ = (
         Index("ix_corrected_transcripts_job_id", "job_id"),
+    )
+
+
+class KeyPointsSummary(Base):
+    """Detailed key-point extraction generated from the effective transcript."""
+
+    __tablename__ = "key_points_summaries"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    job_id = Column(String(36), ForeignKey("jobs.id", ondelete="CASCADE"), unique=True, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    key_points_text = Column(Text, nullable=True)
+    key_points_model = Column(String(50), nullable=True)
+    prompt = Column(Text, nullable=False)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    job = relationship("Job", back_populates="key_points_summary")
+
+    __table_args__ = (
+        Index("ix_key_points_summaries_job_id", "job_id"),
     )
 
 

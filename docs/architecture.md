@@ -31,6 +31,36 @@ legacy prefix-stripped request. The
 bundle generator also rewrites internal URL hostnames such as `api`, `redis`,
 and `postgres` to their generated `<app_id>-<service>` names.
 
+The YouTube frontend keeps `trailingSlash` enabled for its routed page URLs but
+skips Next.js automatic trailing-slash redirects. This is required for REST
+POST requests such as Re-run: redirecting `/api/jobs/transcribe` before the
+API rewrite can change the request URL and prevent the new job from being
+created.
+
+Results text editing uses a shared browser `contenteditable` component. The
+component renders the existing lightweight `**...**` and `==...==` format,
+allows text insertion/deletion and inline formatting, and serializes the safe
+subset back to those markers. It accepts plain-text paste to avoid storing
+untrusted HTML. The backend stores the marker text in the existing Text
+columns; a controlled result-content endpoint validates the target content
+type and record ownership before updating it. Formatting markers are removed
+when transcript text is exported or supplied to LLM/QA processing.
+
+The Library page keeps the selected folder in the page-level navigation state,
+so opening an item and returning from Results restores the folder that was
+active before the item was opened. Successful transcription tasks enqueue the
+Proofread task automatically with the requested proofreading model. Results
+does not expose a separate Proofread tab; its Transcript tab shows the raw
+transcript until the automatic correction is available, then shows the
+corrected text.
+
+Folder-tree responses explicitly sort each sibling group with `Inbox` first,
+then sort the remaining folders by normalized name and path. During
+transcription, the worker reads YouTube metadata before choosing the subtitle
+or audio path. If no user title exists, it stores
+`【uploader】YouTube YYYY/M/D` on the Job and corresponding Library Item; a
+metadata failure falls back to `【YouTube】YouTube YYYY/M/D`.
+
 ## 2. Components
 
 ### 2.1 Nginx
@@ -108,6 +138,72 @@ before any destructive maintenance operation. The supported operations are
 `run28_database_backup`, and the confirmation-gated `run29_database_restore`
 scripts. The Compose volume name is explicitly fixed as
 `youtube-transcripter-db-data`, independent of the Compose project name.
+
+The YouTube worker is explicitly routed to the `transcription` and
+`correction` queues, uses `restart: unless-stopped`, and has a Celery ping
+healthcheck. The API performs a worker ping before publishing a transcription
+task, so a missing worker produces a visible 503 error rather than a successful
+request followed by an indefinitely pending job. `run43_youtube_worker_check`
+is called by the all-services startup script and waits for the routed health
+endpoint to report at least one worker.
+
+Proofreading and QA use the same OpenAI chat client and allow
+`gpt-4o-mini`, `gpt-4o`, or `gpt-5-mini`. The UI defaults to `gpt-4o-mini`;
+when `gpt-5-mini` is selected, requests omit the sampling-temperature option
+so the reasoning model receives only supported parameters.
+
+Key-point extraction uses the same Celery worker and OpenAI chat client as
+proofreading and QA. The API validates the selected model, accepts an edited
+prompt, and queues a dedicated extraction task. The result is stored in a
+one-to-one `key_points_summaries` record containing the prompt, model, output,
+and timestamp; it does not replace `transcripts` or `corrected_transcripts`.
+The Results UI places `Key Points` immediately to the right of `Proofread` and
+provides model selection, execution, and prompt editing controls.
+
+### 2.7 Two-stage YouTube transcript retrieval
+
+The YouTube worker checks `youtube-transcript-api` before creating an audio
+extraction job. It normalizes the selected track into text and timestamped
+segments, preferring manual tracks and then the requested language, Japanese,
+English, or another available language. The result is stored in the dedicated
+`youtube_transcripts` record, including retrieval status and available-track
+metadata.
+
+When retrieval succeeds, the same text is saved as the effective `Transcript`
+with `source=youtube`; audio extraction, preprocessing, and OpenAI STT are
+skipped. When retrieval is unavailable or errors, the worker records that
+outcome and executes the existing audio/STT path, saving its effective
+`Transcript` with `source=audio`. Downstream correction, proofreading, QA, and
+export continue to read the effective `Transcript` field.
+
+The Results API returns both the effective transcript and the independent
+YouTube transcript result. The frontend displays a `YouTube Transcript` tab
+immediately before the existing `Transcript` tab. A missing YouTube transcript
+is presented as an unavailable source, not as an application error when audio
+fallback succeeds.
+
+### 2.8 Detailed key-point extraction flow
+
+```text
+Results / Key Points
+  ├─ select LLM and edit prompt
+  └─ POST /api/jobs/{job_id}/key-points
+          ↓
+      Celery key_points_task
+          ↓ reads effective Transcript only
+      OpenAI chat completion
+          ↓
+      key_points_summaries row
+          ↓
+      GET /api/jobs/{job_id}/result
+```
+
+The default prompt requests chapter-based, detailed points, preserving claims,
+background, evidence, examples, names, numbers, causality, comparisons,
+conclusions, and speaker-attribution language. The worker omits the
+temperature option for `gpt-5-mini`, matching the existing reasoning-model
+handling. A task failure is reported in the job response/UI while preserving
+all existing transcript and proofreading data.
 
 ## 3. Registry and generation flow
 
@@ -216,3 +312,16 @@ shutdown removes Nginx, Launcher, and every registered application service.
 | Start fails for new app | container does not exist yet | use Start, which runs `up -d --build` |
 | 502 after container recreation | Nginx has stale upstream connection/address | recreate Nginx |
 | Open goes to wrong URL | app_id used as URL | use record's route_path |
+| YouTube job remains pending | worker was stopped or unhealthy | check `/youtube/api-proxy/health/`, then run `docker compose ... up -d --build youtube-transcripter-worker` and retry |
+
+## 9. Selective startup options
+
+`run50_start_all.{bat,sh}` runs the complete startup sequence without
+arguments. For an already initialized environment, `--quick` skips the Docker
+file check, database start, status display, and image builds, while retaining
+Manager API startup, service startup, and worker health verification.
+
+The individual options are `--skip-init`, `--skip-manager`,
+`--skip-database`, `--no-build`, `--skip-status`, and `--skip-worker-check`.
+The database skip option is forwarded to `run32_docker_start_detached`; direct
+invocation of `run32` still starts the database unless explicitly skipped.

@@ -14,11 +14,12 @@ import BulkTagDialog from '@/components/FolderTree/BulkTagDialog'
 type Props = {
   settings: AppSettings
   onSelectJob: (jobId: string) => void
+  selectedFolderId: string | null
+  onSelectedFolderChange: (folderId: string | null) => void
 }
 
-export default function LibraryTab({ onSelectJob }: Props) {
+export default function LibraryTab({ onSelectJob, selectedFolderId, onSelectedFolderChange }: Props) {
   const [folders, setFolders] = useState<Folder[]>([])
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [items, setItems] = useState<Item[]>([])
   const [total, setTotal] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -33,14 +34,17 @@ export default function LibraryTab({ onSelectJob }: Props) {
   const [showBulkTagDialog, setShowBulkTagDialog] = useState(false)
 
   // Fetch folder tree
-  const fetchFolders = async () => {
+  const fetchFolders = async (preferredFolderId: string | null = selectedFolderId) => {
     try {
       const res = await apiClient.getFolderTree()
       setFolders(res.folders || [])
       
-      // Auto-select first folder if none selected
-      if (!selectedFolderId && res.folders && res.folders.length > 0) {
-        setSelectedFolderId(res.folders[0].id)
+      // Restore the last folder when returning from Results. If it was deleted,
+      // fall back to the first available folder.
+      const preferredStillExists = preferredFolderId && res.folders?.some((folder: Folder) => folder.id === preferredFolderId)
+      const nextFolderId = preferredStillExists ? preferredFolderId : res.folders?.[0]?.id || null
+      if (nextFolderId !== selectedFolderId) {
+        onSelectedFolderChange(nextFolderId)
       }
     } catch (err: any) {
       console.error('Failed to fetch folders:', err)
@@ -114,7 +118,7 @@ export default function LibraryTab({ onSelectJob }: Props) {
       await apiClient.deleteFolder(folderId)
       fetchFolders()
       if (selectedFolderId === folderId) {
-        setSelectedFolderId(null)
+        onSelectedFolderChange(null)
       }
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'フォルダ削除に失敗しました')
@@ -265,7 +269,7 @@ export default function LibraryTab({ onSelectJob }: Props) {
         <FolderTreePanel
           folders={folders}
           selectedFolderId={selectedFolderId}
-          onSelectFolder={setSelectedFolderId}
+          onSelectFolder={onSelectedFolderChange}
           onCreateFolder={handleCreateFolder}
           onEditFolder={handleEditFolder}
           onDeleteFolder={handleDeleteFolder}

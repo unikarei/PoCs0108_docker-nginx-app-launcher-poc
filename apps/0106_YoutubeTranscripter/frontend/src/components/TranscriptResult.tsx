@@ -274,6 +274,7 @@ export default function TranscriptResult({ jobId }: TranscriptResultProps) {
               >
                 <option value="gpt-4o-mini">GPT-4o Mini</option>
                 <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-5-mini">GPT-5 Mini</option>
               </select>
             </div>
             <button
@@ -328,6 +329,7 @@ export default function TranscriptResult({ jobId }: TranscriptResultProps) {
               >
                 <option value="gpt-4o-mini">GPT-4o Mini</option>
                 <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-5-mini">GPT-5 Mini</option>
               </select>
               <button
                 onClick={triggerQa}

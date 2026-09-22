@@ -34,6 +34,7 @@ function setQuery(params: { tab?: TopTab; job_id?: string | null }) {
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<TopTab>('batch')
   const [jobId, setJobId] = useState<string | null>(null)
+  const [libraryFolderId, setLibraryFolderId] = useState<string | null>(null)
   const [settings, setSettings] = useState<AppSettings>(() => ({ ...loadSettings() }))
 
   useEffect(() => {
@@ -87,7 +88,14 @@ export default function HomePage() {
 
       {activeTab === 'batch' && <BatchTab settings={settings} onSelectJob={selectJob} />}
       {activeTab === 'results' && <ResultsTab jobId={jobId} settings={settings} onSelectJob={selectJob} />}
-      {activeTab === 'library' && <LibraryTab settings={settings} onSelectJob={selectJob} />}
+      {activeTab === 'library' && (
+        <LibraryTab
+          settings={settings}
+          onSelectJob={selectJob}
+          selectedFolderId={libraryFolderId}
+          onSelectedFolderChange={setLibraryFolderId}
+        />
+      )}
       {activeTab === 'settings' && <SettingsTab settings={settings} onChange={setSettings} />}
     </div>
   )

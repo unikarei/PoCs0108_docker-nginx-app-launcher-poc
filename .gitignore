@@ -30,3 +30,6 @@ build/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local operational notes (may contain credentials)
+local-notes/

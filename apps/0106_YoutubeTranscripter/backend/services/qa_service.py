@@ -55,14 +55,16 @@ class QaService:
                 "Respond concisely in the same language as the transcript when possible."
             )
 
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=[
+            request_options = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Transcript:\n{transcript_text}\n\nQuestion:\n{question}"},
                 ],
-                temperature=0.2,
-            )
+            }
+            if model != "gpt-5-mini":
+                request_options["temperature"] = 0.2
+            response = self.client.chat.completions.create(**request_options)
 
             answer = response.choices[0].message.content
             logger.info(f"QA completed successfully, answer length: {len(answer)}")

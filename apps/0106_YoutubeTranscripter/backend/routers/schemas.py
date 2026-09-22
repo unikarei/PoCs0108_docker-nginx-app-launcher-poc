@@ -15,6 +15,7 @@ class TranscribeJobRequest(BaseModel):
     tags: Optional[str] = Field(default=None, description="Optional semicolon-delimited tags (e.g., 'tag1;tag2')")
     language: str = Field(..., description="Target language (ja or en)")
     model: str = Field(default="gpt-4o-mini-transcribe", description="Transcription model")
+    proofread_model: str = Field(default="gpt-4o-mini", description="Automatic proofreading model")
     
     @validator('youtube_url')
     def validate_youtube_url(cls, v):
@@ -41,6 +42,14 @@ class TranscribeJobRequest(BaseModel):
         valid_models = ['gpt-4o-mini-transcribe', 'gpt-4o-transcribe', 'whisper-1']
         if v not in valid_models:
             raise ValueError(f'Model must be one of {valid_models}')
+        return v
+
+    @validator('proofread_model')
+    def validate_proofread_model(cls, v):
+        """Validate the model used by the automatic proofreading step."""
+        valid_models = ['gpt-4o-mini', 'gpt-4o', 'gpt-5-mini']
+        if v not in valid_models:
+            raise ValueError(f'Proofread model must be one of {valid_models}')
         return v
 
 
@@ -95,10 +104,27 @@ class TranscriptInfo(BaseModel):
     text: str
     language_detected: Optional[str] = None
     transcription_model: Optional[str] = None
+    source: Optional[str] = None
+    segments: Optional[List[Dict[str, Any]]] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class YouTubeTranscriptInfo(BaseModel):
+    """Direct YouTube transcript lookup, including unavailable/error states."""
+
+    status: str
+    video_id: Optional[str] = None
+    text: Optional[str] = None
+    language_code: Optional[str] = None
+    language_name: Optional[str] = None
+    is_generated: Optional[bool] = None
+    available_tracks: List[Dict[str, Any]] = Field(default_factory=list)
+    segments: List[Dict[str, Any]] = Field(default_factory=list)
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class CorrectedTranscriptInfo(BaseModel):
@@ -115,6 +141,71 @@ class CorrectedTranscriptInfo(BaseModel):
         from_attributes = True
 
 
+class KeyPointsSummaryInfo(BaseModel):
+    """Detailed key-point extraction state and saved output."""
+
+    status: str
+    key_points_text: Optional[str] = None
+    key_points_model: Optional[str] = None
+    prompt: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class KeyPointsRequest(BaseModel):
+    """Request for an asynchronous detailed key-point extraction."""
+
+    key_points_model: str = Field(default="gpt-4o-mini", description="LLM model for key-point extraction")
+    prompt: str = Field(default="", max_length=50000, description="Extraction prompt; empty uses the default")
+
+    @validator("key_points_model")
+    def validate_key_points_model(cls, v):
+        valid_models = ["gpt-4o-mini", "gpt-4o", "gpt-5-mini"]
+        if v not in valid_models:
+            raise ValueError(f"Key-points model must be one of {valid_models}")
+        return v
+
+
+class KeyPointsResponse(BaseModel):
+    """Response returned after queueing key-point extraction."""
+
+    job_id: str
+    status: str
+    message: str
+
+
+class UpdateResultContentRequest(BaseModel):
+    """Request for updating one documented result text field."""
+
+    content_type: str = Field(..., description="Supported result content type")
+    content: str = Field(..., max_length=500000, description="Formatted text")
+    qa_id: Optional[str] = Field(default=None, description="Required for Q&A content")
+
+    @validator("content_type")
+    def validate_content_type(cls, value):
+        valid_types = {
+            "youtube_transcript",
+            "transcript",
+            "proofread",
+            "key_points",
+            "qa_question",
+            "qa_answer",
+            "note",
+        }
+        if value not in valid_types:
+            raise ValueError(f"Content type must be one of {sorted(valid_types)}")
+        return value
+
+
+class UpdateResultContentResponse(BaseModel):
+    """Response after a result text update."""
+
+    job_id: str
+    content_type: str
+    content: str
+    qa_id: Optional[str] = None
+
+
 class JobResultResponse(BaseModel):
     """
     Response schema for job result
@@ -123,8 +214,10 @@ class JobResultResponse(BaseModel):
     status: str
     model: Optional[str] = None
     audio_file: Optional[AudioFileInfo] = None
+    youtube_transcript: Optional[YouTubeTranscriptInfo] = None
     transcript: Optional[TranscriptInfo] = None
     corrected_transcript: Optional[CorrectedTranscriptInfo] = None
+    key_points_summary: Optional[KeyPointsSummaryInfo] = None
     qa_results: Optional[List["QaResultInfo"]] = None
     error_message: Optional[str] = None
     
@@ -141,7 +234,7 @@ class CorrectTranscriptRequest(BaseModel):
     @validator('correction_model')
     def validate_correction_model(cls, v):
         """Validate correction model"""
-        valid_models = ['gpt-4o-mini', 'gpt-4o']
+        valid_models = ['gpt-4o-mini', 'gpt-4o', 'gpt-5-mini']
         if v not in valid_models:
             raise ValueError(f'Correction model must be one of {valid_models}')
         return v
@@ -161,7 +254,7 @@ class ProofreadRequest(BaseModel):
 
     @validator('proofread_model')
     def validate_proofread_model(cls, v):
-        valid_models = ['gpt-4o-mini', 'gpt-4o']
+        valid_models = ['gpt-4o-mini', 'gpt-4o', 'gpt-5-mini']
         if v not in valid_models:
             raise ValueError(f'Proofread model must be one of {valid_models}')
         return v
@@ -179,7 +272,7 @@ class QaRequest(BaseModel):
 
     @validator('qa_model')
     def validate_qa_model(cls, v):
-        valid_models = ['gpt-4o-mini', 'gpt-4o']
+        valid_models = ['gpt-4o-mini', 'gpt-4o', 'gpt-5-mini']
         if v not in valid_models:
             raise ValueError(f'QA model must be one of {valid_models}')
         return v
@@ -192,6 +285,7 @@ class QaResponse(BaseModel):
 
 
 class QaResultInfo(BaseModel):
+    id: str
     question: str
     answer: str
     qa_model: Optional[str] = None

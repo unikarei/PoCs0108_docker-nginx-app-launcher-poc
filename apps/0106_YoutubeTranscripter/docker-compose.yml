@@ -83,6 +83,7 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    restart: unless-stopped
     volumes:
       - ./backend:/app
       - ./audio_files:/app/audio_files
@@ -90,6 +91,12 @@ services:
       - ./alembic:/app/alembic
     # Listen to the dedicated queues defined in celery_config.task_routes
     command: celery -A worker worker --loglevel=info -Q transcription,correction
+    healthcheck:
+      test: ["CMD", "python", "-c", "from worker import celery_app; p = celery_app.control.inspect(timeout=1).ping(); raise SystemExit(0 if p else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   frontend:
     image: node:18-alpine

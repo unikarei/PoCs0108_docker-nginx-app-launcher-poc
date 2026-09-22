@@ -221,14 +221,16 @@ Return only the corrected text without explanations."""
                 logger.info(f"Correcting text with {model} (length: {len(transcript_text)} chars)")
                 
                 try:
-                    response = self.client.chat.completions.create(
-                        model=model,
-                        messages=[
+                    request_options = {
+                        "model": model,
+                        "messages": [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": transcript_text}
                         ],
-                        temperature=0.3  # Lower temperature for more consistent corrections
-                    )
+                    }
+                    if model != "gpt-5-mini":
+                        request_options["temperature"] = 0.3
+                    response = self.client.chat.completions.create(**request_options)
                     
                     corrected_text = response.choices[0].message.content
                     logger.info(f"Correction API call successful (output: {len(corrected_text)} chars)")
@@ -246,14 +248,16 @@ Return only the corrected text without explanations."""
                     logger.info(f"Correcting chunk {i+1}/{len(chunks)} (length: {len(chunk)} chars)")
                     
                     try:
-                        response = self.client.chat.completions.create(
-                            model=model,
-                            messages=[
+                        request_options = {
+                            "model": model,
+                            "messages": [
                                 {"role": "system", "content": system_prompt},
                                 {"role": "user", "content": chunk}
                             ],
-                            temperature=0.3
-                        )
+                        }
+                        if model != "gpt-5-mini":
+                            request_options["temperature"] = 0.3
+                        response = self.client.chat.completions.create(**request_options)
                         
                         chunk_result = response.choices[0].message.content
                         corrected_chunks.append(chunk_result)

@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 # Import models
 from database import Base
-from models import Job, AudioFile, Transcript, CorrectedTranscript
+from models import Job, AudioFile, Transcript, YoutubeTranscript, CorrectedTranscript, KeyPointsSummary
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

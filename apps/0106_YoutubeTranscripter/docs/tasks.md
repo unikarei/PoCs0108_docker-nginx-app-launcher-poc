@@ -37,6 +37,12 @@
 - [x] 対象: frontend/src/components/tabs/ResultsTab.tsx
 - [x] 完了条件: `**...**` と `==...==` の装飾を編集UIで付与でき、プレビューで反映される。
 
+### T2-6 Results 本文のインライン編集
+- [ ] 内容: YouTube Transcript、Transcript、Proofread、要点抽出、Q&A、Note
+  の本文を共通Editorで編集・太字化・黄色ハイライトできるようにする。
+- [ ] 完了条件: 編集内容と装飾が保存され、再表示後も維持される。既存記法と
+  安全なプレーンテキスト表示・エクスポートが維持される。
+
 ### T2-5 バッチキュー取消
 - [x] 内容: Batch タブで投入済みの待機中/実行中ジョブを取消できるようにする。
 - [x] 対象: backend/routers/jobs.py, backend/services/job_manager.py, backend/worker.py, frontend/src/components/tabs/BatchTab.tsx

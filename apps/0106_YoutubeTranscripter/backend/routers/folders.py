@@ -54,10 +54,24 @@ def _get_item_count(db: Session, folder_id: str) -> FolderItemCount:
     )
 
 
+def _folder_sort_key(folder: Folder) -> tuple[int, str, str]:
+    """Keep Inbox first, then order other folders deterministically."""
+    name = (folder.name or "").strip()
+    return (
+        0 if name.casefold() == "inbox" else 1,
+        name.casefold(),
+        (folder.path or "").casefold(),
+    )
+
+
 def _build_folder_tree(db: Session, folders: list, parent_id: Optional[str] = None) -> list:
     """Recursively build folder tree with children"""
     result = []
-    for folder in [f for f in folders if f.parent_id == parent_id]:
+    siblings = sorted(
+        (folder for folder in folders if folder.parent_id == parent_id),
+        key=_folder_sort_key,
+    )
+    for folder in siblings:
         folder_dict = {
             "id": folder.id,
             "name": folder.name,
@@ -98,6 +112,7 @@ async def get_folder_tree(db: Annotated[Session, Depends(get_db)]):
         )
 
 
+@router.post("", response_model=FolderResponse, status_code=status.HTTP_201_CREATED, include_in_schema=False)
 @router.post("/", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
 async def create_folder(
     request: FolderCreate,

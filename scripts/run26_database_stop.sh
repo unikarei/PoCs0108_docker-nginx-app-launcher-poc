@@ -1,4 +1,4 @@
-#!/usr/bin/env bash                                          # Use bash to run this script.
+#!/usr/bin/env bash
 set -euo pipefail                                            # Stop on error, undefined variable, or pipe failure.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"                   # Project root is the parent folder of scripts.
 cd "$ROOT"                                                   # Move to the project root.

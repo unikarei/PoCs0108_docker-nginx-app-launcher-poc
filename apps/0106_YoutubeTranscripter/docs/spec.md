@@ -49,7 +49,20 @@ Web アプリケーションの現行要件を定義する。
 
 6. ノート編集
 - Note タブで選択文字列に太字・黄色ハイライトの装飾を付与できる。
-- ノート編集画面で装飾結果のプレビューを確認できる。
+- 装飾結果は別Viewerへ切り替えずEditor内に即時反映される。
+
+7. 結果本文の編集
+- YouTube Transcript、Transcript、Proofread、要点抽出、Q&A、Note の本文
+  を表示中のEditor上で追加・削除・修正できる。
+- 選択文字列へ太字・黄色ハイライトを付与でき、装飾結果はEditor内に即時
+  反映される。
+- 編集内容は保存後に再表示しても維持される。
+
+### 4.1 結果本文更新API
+- `PATCH /api/jobs/{job_id}/content` で本文を更新する。
+- `content_type` は `youtube_transcript`、`transcript`、`proofread`、
+  `key_points`、`qa_question`、`qa_answer`、`note` に限定する。
+- `qa_question` と `qa_answer` は対象Q&Aの `qa_id` を必須とする。
 
 ## 5. 実行プロファイル要件
 1. Docker プロファイル

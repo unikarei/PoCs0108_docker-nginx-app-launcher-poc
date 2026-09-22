@@ -42,6 +42,7 @@ task_routes = {
     "worker.correction_task": {"queue": "correction"},
     # These tasks should be consumed by the existing worker queues.
     "worker.proofread_task": {"queue": "correction"},
+    "worker.key_points_task": {"queue": "correction"},
     "worker.qa_task": {"queue": "correction"},
 }
 

@@ -126,10 +126,20 @@ export default function BatchTab({ settings, onSelectJob }: Props) {
           }
         })
       )
+
+      const selectedUpdate = updates.find((item) => item.key === selectedKey)
+      const selectedItem = queue.find((item) => item.key === selectedKey)
+      if (selectedUpdate?.status && isTerminalStatus(selectedUpdate.status) && selectedItem?.jobId) {
+        try {
+          setPreview(await apiClient.getJobResult(selectedItem.jobId))
+        } catch {
+          // Keep the previous preview if the result is still becoming consistent.
+        }
+      }
     }, 3000)
 
     return () => clearInterval(timer)
-  }, [queue])
+  }, [queue, selectedKey])
 
   const cancelQueueItem = async (item: QueueItem) => {
     if (isTerminalStatus(item.status) || isCanceling(item.key)) return
@@ -213,6 +223,7 @@ export default function BatchTab({ settings, onSelectJob }: Props) {
           const res = await apiClient.createJob(item.youtubeUrl, settings.language, settings.transcriptionModel, {
             user_title: item.userTitle,
             tags: item.tags,
+            proofread_model: settings.proofreadModel,
           })
           const jobId = res.job_id as string
 
@@ -362,7 +373,7 @@ export default function BatchTab({ settings, onSelectJob }: Props) {
             <div>言語: {settings.language}</div>
             <div>モデル: {settings.transcriptionModel}</div>
             <div>分割: MAX_SINGLE_CHUNK_SEC={settings.maxSingleChunkSec}</div>
-            <div>Proofread: {settings.proofreadEnabled ? 'ON' : 'OFF'} / QA: {settings.qaEnabled ? 'ON' : 'OFF'}</div>
+            <div>Auto Proofread: {settings.proofreadModel} / QA: {settings.qaEnabled ? 'ON' : 'OFF'}</div>
           </div>
 
           <button
@@ -439,6 +450,27 @@ export default function BatchTab({ settings, onSelectJob }: Props) {
                 Resultsで詳細を見る
               </button>
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm">
+                <div className="text-gray-700 font-medium mb-1">Subtitle information</div>
+                {preview?.youtube_transcript?.status === 'available' ? (
+                  <div className="text-gray-700 whitespace-pre-wrap">
+                    <div>
+                      Selected: {preview.youtube_transcript.language_name || preview.youtube_transcript.language_code || 'unknown'}
+                      {' · '}
+                      {preview.youtube_transcript.is_generated ? 'auto-generated' : 'manual'}
+                    </div>
+                    <div className="text-xs mt-1">
+                      Available:{' '}
+                      {(preview.youtube_transcript.available_tracks || [])
+                        .map((track: any) => `${track.language_name || track.language_code} (${track.is_generated ? 'auto' : 'manual'})`)
+                        .join(', ') || 'unknown'}
+                    </div>
+                  </div>
+                ) : preview?.youtube_transcript?.status === 'error' ? (
+                  <div className="text-amber-700">YouTube transcript lookup failed; audio fallback was used.</div>
+                ) : (
+                  <div className="text-gray-500">No YouTube-provided transcript is available.</div>
+                )}
+
                 <div className="text-gray-700 font-medium mb-1">Transcript</div>
                 <div className="text-gray-700 whitespace-pre-wrap">
                   {(preview?.transcript?.text || '').slice(0, 400) || '（未完了）'}

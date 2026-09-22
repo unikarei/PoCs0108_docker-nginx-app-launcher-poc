@@ -21,6 +21,7 @@ interface StatusData {
 }
 
 const stageMessages: Record<string, string> = {
+  youtube_transcript: 'Checking YouTube-provided subtitles...',
   download_extract: 'ダウンロード/音声抽出中...',
   preprocess: '前処理中（圧縮/分割）...',
   transcribe: '文字起こし中（チャンク処理）...',

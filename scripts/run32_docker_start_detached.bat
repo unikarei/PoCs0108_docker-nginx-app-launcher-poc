@@ -4,16 +4,31 @@ chcp 65001 >nul                                               & rem Use UTF-8 ou
 set "ROOT=%~dp0.."                                            & rem Project root is the parent folder of scripts.
 cd /d "%ROOT%"                                                & rem Move to the project root.
 
+set "SKIP_DATABASE=0"                                          & rem Start database by default for direct invocation.
+set "NO_BUILD=0"                                               & rem Build images by default for backward compatibility.
+
+:parse_args
+if "%~1"=="" goto :args_done                                   & rem Finish option parsing.
+if /I "%~1"=="--skip-database" (set "SKIP_DATABASE=1" & shift & goto :parse_args)
+if /I "%~1"=="--no-build" (set "NO_BUILD=1" & shift & goto :parse_args)
+if /I "%~1"=="--help" goto :help
+echo [ERROR] Unknown option: %~1
+goto :usage
+
+:args_done
+
 echo ========================================================= & rem Print title separator.
 echo [run32] Start Docker services in background               & rem Print script purpose.
 echo ========================================================= & rem Print title separator.
 
-call "%~dp0run25_database_start.bat"                         & rem Start the separately managed database.
-if errorlevel 1 goto :failed                                  & rem Stop when database start fails.
+if "%SKIP_DATABASE%"=="0" call "%~dp0run25_database_start.bat" & rem Start the separately managed database.
+if "%SKIP_DATABASE%"=="1" echo [SKIP] External database start.
+if "%SKIP_DATABASE%"=="0" if errorlevel 1 goto :failed       & rem Stop when database start fails.
 
 if not exist "docker-compose.yml" goto :missing_compose       & rem Require docker-compose.yml.
 
-docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up --build -d & rem Build and start services.
+if "%NO_BUILD%"=="0" docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up --build -d & rem Build and start services.
+if "%NO_BUILD%"=="1" docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up -d & rem Start services using existing images.
 if errorlevel 1 goto :failed                                  & rem Stop when Docker Compose fails.
 docker compose -f docker-compose.yml -f generated\docker-compose.apps.yml up -d --force-recreate nginx & rem Refresh Nginx DNS after app recreation.
 if errorlevel 1 goto :failed                                  & rem Stop when Nginx recreation fails.
@@ -31,4 +46,14 @@ exit /b 1                                                     & rem Exit with er
 rem ---------------------------------------------------------  & rem Error branch for Docker Compose failure.
 :failed
 echo [ERROR] docker compose up -d failed.                      & rem Explain the error.
-exit /b 1                                                     & rem Exit with error.
+exit /b 1                                                     & rem Exit with error.
+
+:help
+echo Usage: run32_docker_start_detached.bat [options]
+echo   --skip-database  Do not start the external database.
+echo   --no-build       Start containers using existing images.
+exit /b 0
+
+:usage
+echo Use --help to list supported options.
+exit /b 2

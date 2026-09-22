@@ -6,6 +6,9 @@ const nextConfig = {
   reactStrictMode: true,
   basePath,
   trailingSlash: true,
+  // REST endpoints under the routed API proxy must keep their original
+  // slash form. Otherwise Next redirects POST requests before the rewrite.
+  skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_API_URL: apiBasePath,
   },

@@ -9,7 +9,7 @@ from datetime import datetime
 import json
 
 from database import SessionLocal
-from models import Job, AudioFile, Transcript, CorrectedTranscript, QaResult, Item, Folder
+from models import Job, AudioFile, Transcript, YoutubeTranscript, CorrectedTranscript, KeyPointsSummary, QaResult, Item, Folder
 
 logger = logging.getLogger(__name__)
 
@@ -438,6 +438,7 @@ class JobManager:
                 text=transcript,
                 language_detected=metadata.get('language_detected'),
                 transcription_model=metadata.get('model'),
+                source=metadata.get('source', 'audio'),
                 segments_json=segments_json,
             )
             db.add(transcript_record)
@@ -445,6 +446,29 @@ class JobManager:
             
             logger.info(f"Saved transcript for job {job_id}")
             
+        finally:
+            self._close_db(db)
+
+    def save_youtube_transcript_result(self, job_id: str, result: Any) -> None:
+        """Upsert the YouTube lookup outcome before fallback or completion."""
+        db = self._get_db()
+        try:
+            record = db.query(YoutubeTranscript).filter(YoutubeTranscript.job_id == job_id).first()
+            if record is None:
+                record = YoutubeTranscript(job_id=job_id)
+                db.add(record)
+
+            record.status = result.status
+            record.video_id = result.video_id
+            record.text = result.text
+            record.language_code = result.language_code
+            record.language_name = result.language_name
+            record.is_generated = result.is_generated
+            record.available_tracks_json = json.dumps(result.available_tracks, ensure_ascii=False)
+            record.segments_json = json.dumps(result.segments, ensure_ascii=False)
+            record.error_message = result.error
+            db.commit()
+            logger.info("Saved YouTube transcript lookup for job %s: %s", job_id, result.status)
         finally:
             self._close_db(db)
 
@@ -479,6 +503,38 @@ class JobManager:
             db.add(corrected)
             db.commit()
             logger.info(f"Upserted corrected transcript for job {job_id}")
+        finally:
+            self._close_db(db)
+
+    def upsert_key_points_summary(
+        self,
+        job_id: str,
+        prompt: str,
+        model: str,
+        status: str,
+        key_points_text: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        """Save the pending, completed, or failed key-point extraction result."""
+        db = self._get_db()
+        try:
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job and job.status == "canceled":
+                logger.info("Skip key-point result save for canceled job %s", job_id)
+                return
+
+            record = db.query(KeyPointsSummary).filter(KeyPointsSummary.job_id == job_id).first()
+            if record is None:
+                record = KeyPointsSummary(job_id=job_id)
+                db.add(record)
+
+            record.prompt = prompt
+            record.key_points_model = model
+            record.status = status
+            record.key_points_text = key_points_text
+            record.error_message = error_message
+            db.commit()
+            logger.info("Saved key-point result for job %s: %s", job_id, status)
         finally:
             self._close_db(db)
 
